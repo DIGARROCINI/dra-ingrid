@@ -214,6 +214,10 @@ body.tutor .cta-fixa{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bot
 .sugs button{border:1px solid var(--linha);background:#fff;border-radius:99px;padding:7px 12px;font:500 13px Figtree;cursor:pointer;color:var(--lil-f)}
 .chatbox{position:fixed;left:0;right:0;bottom:calc(var(--rail-h) + env(safe-area-inset-bottom));background:var(--fundo);padding:10px 16px;border-top:1px solid var(--linha);z-index:30}
 .chatbox form{max-width:760px;margin:0 auto;display:flex;gap:8px;align-items:center}
+.mic-grande{width:52px;height:52px;border-radius:50%;padding:0;flex:none;background:var(--lil-f)}
+.mic-grande .ic{width:24px;height:24px}
+.mic-grande.on{background:var(--coral-f);animation:pulsa 1.2s infinite}
+@keyframes pulsa{0%{box-shadow:0 0 0 0 rgba(196,48,46,.45)}70%{box-shadow:0 0 0 14px rgba(196,48,46,0)}100%{box-shadow:0 0 0 0 rgba(196,48,46,0)}}
 
 .ov{position:fixed;inset:0;background:rgba(29,27,46,.5);z-index:80;display:none;align-items:flex-end;justify-content:center}
 .ov.on{display:flex}

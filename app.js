@@ -879,7 +879,7 @@ function salvarEntrada() {
 /* ---- Assistente: pergunta E faz (sempre com cartão de confirmação) ---- */
 let conversa = [];
 const SUG_PERGUNTAR = ['Quem está com vacina atrasada?', 'Qual a agenda de amanhã?', 'Dose de meloxicam para cão de 12 kg', 'Quanto entrou este mês?', 'O que preciso repor?', 'Dose de dipirona para gato'];
-const SUG_FAZER = ['Peso do Thor 33 kg', 'Pipoca tomou V8 hoje', 'Marcar Bento amanhã às 14h', 'Carla pagou no Pix'];
+const SUG_FAZER = ['Agenda o Thor da Carla sexta às 10', 'Marca a Mia amanhã de manhã', 'Peso do Thor 33 kg', 'Pipoca tomou V8 hoje', 'Carla pagou no Pix'];
 function acharAnimal(nome) { const n = semAcento(nome); return DB.animais.find(a => semAcento(a.nome) === n); }
 function acharTutor(nome) { const n = semAcento(nome); return DB.tutores.find(t => semAcento(t.nome.split(' ')[0]) === n) || (acharAnimal(nome) && tutor(acharAnimal(nome).tutorId)); }
 /* entende pedidos de AÇÃO; devolve um cartão para a Ingrid confirmar */
@@ -899,13 +899,7 @@ function entenderAcao(p) {
     return { tipo: 'vacina', dados: { animalId: a.id, escolha: dose ? 'dose:' + dose.id : 'nova:' + vacina, estoqueId: est ? est.id : '' }, titulo: `Registrar ${vacina} em ${a.nome}`,
       itens: [`${vacina}${dose && dose.total > 1 ? ' dose ' + dose.n + '/' + dose.total : ''} aplicada hoje`, est ? `Baixa no estoque: lote ${est.lote} (${est.qtd} → ${Math.max(0, est.qtd - 1)})` : 'Sem lote no estoque', t ? `Cobrança: ${brl(t.preco)} para ${tutor(a.tutorId).nome}` : '', 'Próxima dose marcada sozinha'].filter(Boolean) };
   }
-  if ((m = q.match(/marca\w*\s+(?:o\s+|a\s+)?([a-z]+)\s+(hoje|amanha|(\d{1,2})\/(\d{1,2}))\s*(?:as\s*)?(\d{1,2})(?::(\d{2}))?\s*h?/))) {
-    const a = acharAnimal(m[1]); if (!a) return null;
-    const data = m[2] === 'hoje' ? isoHoje() : m[2] === 'amanha' ? isoMais(isoHoje(), 1) : isoHoje().slice(0, 4) + '-' + m[4].padStart(2, '0') + '-' + m[3].padStart(2, '0');
-    const hora = m[5].padStart(2, '0') + ':' + (m[6] || '00');
-    const t = tutor(a.tutorId);
-    return { tipo: 'marcar', dados: { animalId: a.id, data, hora }, titulo: `Marcar visita de ${a.nome}`, itens: [`${SEM_LONGO[diaSemN(data)]}, ${dataCurta(data)} às ${hora}`, `Consulta domiciliar · ${t.nome} · ${t.bairro}`, DB.agenda.some(g => g.data === data && g.hora === hora) ? 'Atenção: já existe visita nesse horário' : 'Horário livre'] };
-  }
+  if (/\b(agend|marc|visita\b)/.test(q)) { const r = entenderMarcar(q); if (r) return r; }
   if ((m = q.match(/([a-z]+)\s+pagou(?:\s+(?:no|com|de|em)\s+(pix|cartao))?/))) {
     const t = acharTutor(m[1]); if (!t) return null;
     const abertos = DB.orcamentos.filter(o => o.tutorId === t.id && o.status !== 'pago');
@@ -915,6 +909,119 @@ function entenderAcao(p) {
   }
   return null;
 }
+
+/* ---------- marcar visita falando do jeito dela ----------
+   "agenda o Thor da Carla sexta às 10", "marca a Mia amanhã de manhã",
+   "agendar o Pedrinho, tutor do cachorro Thor, dia 25 às 10 e meia".
+   Faltou alguma coisa? Pergunta de volta e lembra do que já foi dito. */
+let contextoMarcar = null;
+const DIAS_SEM = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+const palavras = q => q.split(/[^a-z0-9]+/).filter(Boolean);
+function lerData(q) {
+  const hoje = isoHoje();
+  if (/depois de amanha/.test(q)) return isoMais(hoje, 2);
+  if (/\bamanha\b/.test(q)) return isoMais(hoje, 1);
+  if (/\bhoje\b/.test(q)) return hoje;
+  let m = q.match(/\b(\d{1,2})\s*\/\s*(\d{1,2})\b/);
+  if (m) return hoje.slice(0, 4) + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  m = q.match(/\bdia\s+(\d{1,2})\b/);
+  if (m) { let d = hoje.slice(0, 8) + m[1].padStart(2, '0'); if (d < hoje) d = mesMais(hoje.slice(0, 7), 1) + '-' + m[1].padStart(2, '0'); return d; }
+  const i = DIAS_SEM.findIndex(n => new RegExp('\\b' + n).test(q));
+  if (i >= 0) { let n = (i - diaSemN(hoje) + 7) % 7; if (n === 0) n = 7; if (/que vem|proxim/.test(q) && n < 7) n += 7; return isoMais(hoje, n); }
+  return null;
+}
+function lerHora(q) {
+  let m = q.match(/\b(\d{1,2})\s*(?:h|:|horas?)?\s*(?:e\s+)?(meia|\d{2})?\b(?=\s*(?:h|horas?|da manha|da tarde|$|\s))/);
+  const aoLado = q.match(/\b(?:as|para as|pras|das)\s+(\d{1,2})(?:\s*(?:h|:|horas?))?(?:\s*(?:e\s+)?(meia|\d{2}))?/);
+  if (aoLado) m = aoLado; else if (!/\bh\b|\d{1,2}h|horas?|:\d{2}/.test(q)) m = null;
+  if (m) {
+    let h = +m[1]; const min = m[2] === 'meia' ? 30 : m[2] ? +m[2] : 0;
+    if (/da tarde|da noite/.test(q) && h < 12) h += 12;
+    if (h >= 0 && h < 24) return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+  }
+  if (/meio dia/.test(q)) return '12:00';
+  if (/de manha|pela manha/.test(q)) return '09:00';
+  if (/de tarde|a tarde|pela tarde/.test(q)) return '14:00';
+  return null;
+}
+function lerServico(q) {
+  const v = q.match(/\b(v8|v10|v4|v5|antirrabica|raiva)\b/);
+  if (v) { const vac = /rab|raiva/.test(v[1]) ? 'Antirrábica' : v[1].toUpperCase(); const t = DB.tabela.find(x => x.vacina === vac); if (t) return t.id; }
+  if (/check.?up|avaliacao/.test(q)) return 's3';
+  if (/retorno/.test(q)) return 's2';
+  return 's1';
+}
+function entenderMarcar(q, ctx = {}) {
+  const pal = palavras(q);
+  // quem: animal falado (e, se houver dois com o mesmo nome, o tutor desempata)
+  let cands = DB.animais.filter(a => pal.includes(semAcento(a.nome)));
+  const tutoresDitos = DB.tutores.filter(t => pal.includes(semAcento(t.nome.split(' ')[0])));
+  if (cands.length > 1 && tutoresDitos.length) cands = cands.filter(a => tutoresDitos.some(t => t.id === a.tutorId));
+  if (!cands.length && tutoresDitos.length === 1) cands = DB.animais.filter(a => a.tutorId === tutoresDitos[0].id);
+  const a = ctx.animalId ? animal(ctx.animalId) : cands.length === 1 ? cands[0] : null;
+  const data = lerData(q) || ctx.data, hora = lerHora(q) || ctx.hora, servico = (lerServico(q) !== 's1' ? lerServico(q) : ctx.servico) || 's1';
+  if (!a) {
+    if (cands.length > 1) { contextoMarcar = { data, hora, servico }; return { tipo: 'pergunta', titulo: `Tenho ${cands.length} com esse nome`, itens: cands.map(x => `${x.nome}, ${x.especie.toLowerCase()} da ${tutor(x.tutorId).nome}`), fala: `Tenho ${cands.length}: ${cands.map(x => x.nome + ' da ' + tutor(x.tutorId).nome.split(' ')[0]).join(' ou ')}. Qual deles?` }; }
+    return null;
+  }
+  const t = tutor(a.tutorId);
+  if (!data || !hora) {
+    contextoMarcar = { animalId: a.id, data, hora, servico };
+    const falta = !data && !hora ? 'o dia e o horário' : !data ? 'o dia' : 'o horário';
+    return { tipo: 'pergunta', titulo: `Marcar ${a.nome}: falta ${falta}`, itens: [data ? `Dia: ${SEM_LONGO[diaSemN(data)]}, ${dataCurta(data)}` : 'Dia: ?', hora ? `Horário: ${hora}` : 'Horário: ?'], fala: `Para quando é a visita do ${a.nome}? Me diga ${falta}.` };
+  }
+  contextoMarcar = null;
+  const ocupado = DB.agenda.some(g => g.data === data && g.hora === hora);
+  const falado = tutoresDitos.find(x => x.id !== t.id);
+  return { tipo: 'marcar', dados: { animalId: a.id, data, hora, servico }, titulo: `Marcar ${tab(servico)?.nome.toLowerCase() || 'visita'} · ${a.nome}`,
+    itens: [`${SEM_LONGO[diaSemN(data)]}, ${dataCurta(data)} às ${hora}`, `${t.nome} · ${t.endereco} — ${t.bairro}`, ocupado ? 'Atenção: já existe visita nesse horário' : 'Horário livre', falado ? `Obs.: no cadastro, o tutor do ${a.nome} é ${t.nome}` : ''].filter(Boolean),
+    fala: `Marcar ${tab(servico)?.nome.toLowerCase() || 'visita'} do ${a.nome}, ${SEM_LONGO[diaSemN(data)].toLowerCase()}, dia ${+data.slice(8)}, às ${falaHora(hora)}, na casa ${t.nome.split(' ')[0] ? 'da ' + t.nome.split(' ')[0] : ''}.${ocupado ? ' Atenção: já tem visita nesse horário.' : ''} Confirmo?` };
+}
+const falaHora = h => { const [hh, mm] = h.split(':').map(Number); return hh + (mm ? ' e ' + (mm === 30 ? 'meia' : mm) : ' horas'); };
+
+/* ---------- voz: ouvir e falar (grátis, do próprio celular) ---------- */
+const VOZ_K = 'vetig_voz';
+let vozLigada = (() => { try { return localStorage.getItem(VOZ_K) !== 'nao'; } catch (e) { return true; } })();
+function alternarVoz() { vozLigada = !vozLigada; try { localStorage.setItem(VOZ_K, vozLigada ? 'sim' : 'nao'); } catch (e) { } if (!vozLigada && window.speechSynthesis) speechSynthesis.cancel(); route({ manterScroll: true }); toast(vozLigada ? 'Vou responder falando' : 'Respostas só por escrito'); }
+function vozPtBr() {
+  const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+  const br = vs.filter(v => /pt[-_]BR/i.test(v.lang));
+  return br.find(v => /google|luciana|francisca|natural|premium|enhanced/i.test(v.name)) || br[0] || vs.find(v => /^pt/i.test(v.lang)) || null;
+}
+function falar(texto, depois) {
+  if (!vozLigada || !window.speechSynthesis || !texto) { if (depois) depois(); return; }
+  speechSynthesis.cancel();
+  const limpo = String(texto).replace(/[•*_#→]/g, ' ').replace(/R\$\s?([\d.]+),00/g, '$1 reais').replace(/R\$\s?([\d.]+),(\d{2})/g, '$1 reais e $2 centavos').replace(/\s+/g, ' ').slice(0, 420);
+  const u = new SpeechSynthesisUtterance(limpo);
+  const v = vozPtBr(); if (v) u.voice = v; u.lang = 'pt-BR'; u.rate = 1.05;
+  if (depois) u.onend = depois;
+  speechSynthesis.speak(u);
+}
+if (window.speechSynthesis) speechSynthesis.onvoiceschanged = () => { };   // carrega a lista de vozes cedo
+let ouvindo = false;
+function ouvir(aoOuvir) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Este navegador não ouve por voz — escreva a mensagem'); return; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  const r = new SR(); r.lang = 'pt-BR'; r.interimResults = false; r.maxAlternatives = 1;
+  ouvindo = true; marcarMic(true);
+  r.onresult = e => aoOuvir(e.results[0][0].transcript);
+  r.onerror = e => { if (e.error !== 'no-speech') toast('Não consegui ouvir — tente de novo'); };
+  r.onend = () => { ouvindo = false; marcarMic(false); };
+  r.start();
+}
+function marcarMic(on) { const b = $('#micAssist'); if (b) { b.classList.toggle('on', on); b.setAttribute('aria-label', on ? 'Ouvindo…' : 'Falar com o assistente'); } }
+function falarComAssistente() { ouvir(txt => perguntar(txt, true)); }
+/* depois de um cartão de ação lido em voz alta, escuta "confirma" ou "cancela" */
+function escutarConfirmacao(i) {
+  ouvir(txt => {
+    const q = semAcento(txt);
+    if (/\b(sim|confirm\w*|pode|isso|ok|manda|beleza|certo|claro|marca|faz)\b/.test(q)) { executarAcao(i); falar('Pronto, feito.'); }
+    else if (/\b(nao|cancel\w*|deixa|errado|espera)\b/.test(q)) { cancelarAcao(i); falar('Cancelado.'); }
+    else perguntar(txt, true);
+  });
+}
+
 function executarAcao(i) {
   const c = conversa[i]; if (!c || c.estado !== 'pendente') return;
   const d = c.acao.dados;
@@ -924,7 +1031,7 @@ function executarAcao(i) {
       const v = registrarDose(d.animalId, d.escolha, d.estoqueId), t = DB.tabela.find(x => x.vacina === v.vacina);
       if (t) DB.orcamentos.push({ id: uid('o'), tutorId: animal(d.animalId).tutorId, animalId: d.animalId, data: isoHoje(), itens: [{ tab: t.id, qtd: 1 }], status: 'enviado', forma: '' });
     }
-    if (c.acao.tipo === 'marcar') DB.agenda.push({ id: uid('g'), animalId: d.animalId, servico: 's1', data: d.data, hora: d.hora, obs: 'Marcado pelo assistente', status: 'confirmado', origem: 'ingrid' });
+    if (c.acao.tipo === 'marcar') DB.agenda.push({ id: uid('g'), animalId: d.animalId, servico: d.servico || 's1', data: d.data, hora: d.hora, obs: 'Marcado pelo assistente', status: 'confirmado', origem: 'ingrid' });
     if (c.acao.tipo === 'pagou') d.ids.forEach(id => baixarOrcDados(id, d.forma));
     c.estado = 'feito';
   });
@@ -970,7 +1077,7 @@ function responder(p) {
   if (t) { const an = DB.animais.filter(a => a.tutorId === t.id); return `${t.nome} — ${t.fone}, ${t.bairro}.\nAnimais: ${an.map(a => `${a.nome} (${a.raca}, ${idade(a.nasc)})`).join(', ')}.\nSituação: ${etapa(t).txt}.`; }
   return 'Neste protótipo eu respondo sobre vacinas, agenda, doses da sua lista, financeiro, estoque, check-ups e clientes pelo nome — e já faço: registrar peso, vacina aplicada, marcar visita e dar baixa em pagamento. Sempre mostro o que vai mudar antes.';
 }
-TELAS.assistente = () => barra('Assistente', { sub: 'Pergunte ou mande fazer — por escrito ou por voz' }) + `<main style="padding-bottom:calc(var(--rail-h) + 110px)">
+TELAS.assistente = () => barra('Assistente', { sub: 'Fale ou escreva — ele faz no app', acoes: acaoBtn(vozLigada ? 'volume-2' : 'volume-x', vozLigada ? 'Desligar a voz' : 'Ligar a voz', 'alternarVoz()') }) + `<main style="padding-bottom:calc(var(--rail-h) + 110px)">
   <div class="aviso lil small">Protótipo: respostas montadas por regras sobre os dados do app. No app real é a IA (Claude), com os mesmos dados — e <b>nunca inventa dose</b>: só usa a lista conferida no VetSmart.</div>
   <div class="chat" id="chat" style="margin-top:14px">${conversa.length ? conversa.map((m, i) => m.de === 'acao' ? `
     <div class="acao ${m.estado !== 'pendente' ? 'feita' : ''}"><b>${esc(m.acao.titulo)}</b>${m.acao.itens.length ? `<ul class="small">${m.acao.itens.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -978,14 +1085,24 @@ TELAS.assistente = () => barra('Assistente', { sub: 'Pergunte ou mande fazer —
     : `<div class="msg ${m.de}">${esc(m.t)}</div>`).join('') : `<div class="msg ia">Oi, Ingrid! Posso responder sobre o seu dia e também fazer por você: registrar peso, vacina, marcar visita, dar baixa em pagamento. Eu sempre mostro o que vai mudar antes.</div>`}</div>
   <div class="secao"><h2>Perguntar</h2></div><div class="sugs">${SUG_PERGUNTAR.map(s => `<button onclick="perguntar(this.textContent)">${s}</button>`).join('')}</div>
   <div class="secao"><h2>Mandar fazer</h2></div><div class="sugs">${SUG_FAZER.map(s => `<button onclick="perguntar(this.textContent)">${s}</button>`).join('')}</div>
-  </main><div class="chatbox"><form onsubmit="event.preventDefault();perguntar($('#chIn').value)"><input id="chIn" aria-label="Sua mensagem" placeholder="Ex.: Thor tomou V10 hoje" autocomplete="off" class="grow">${micBtn('#chIn')}<button class="btn" aria-label="Enviar">${ic('send')}</button></form></div>`;
-function perguntar(p) {
+  </main><div class="chatbox"><form onsubmit="event.preventDefault();perguntar($('#chIn').value)"><button type="button" id="micAssist" class="btn mic-grande" aria-label="Falar com o assistente" onclick="falarComAssistente()">${ic('mic')}</button><input id="chIn" aria-label="Sua mensagem" placeholder="Toque no microfone e fale" autocomplete="off" class="grow"><button class="btn sec" aria-label="Enviar">${ic('send')}</button></form></div>`;
+function perguntar(p, porVoz = false) {
   if (!p || !p.trim()) return;
   conversa.push({ de: 'eu', t: p.trim() });
-  const acao = entenderAcao(p);
-  if (acao) conversa.push({ de: 'acao', acao, estado: 'pendente' });
-  else conversa.push({ de: 'ia', t: responder(p) });
+  const q = semAcento(p);
+  let acao = null;
+  const falouOutroAnimal = DB.animais.some(a => palavras(q).includes(semAcento(a.nome))) && !(contextoMarcar && contextoMarcar.animalId && palavras(q).includes(semAcento(animal(contextoMarcar.animalId).nome)));
+  if (contextoMarcar && !falouOutroAnimal && !/\b(peso|pagou|tomou|apliquei|dose)\b/.test(q)) acao = entenderMarcar(q, Object.fromEntries(Object.entries(contextoMarcar).filter(([, v]) => v)));
+  if (!acao) acao = entenderAcao(p);
+  let fala;
+  if (acao && acao.tipo === 'pergunta') { conversa.push({ de: 'ia', t: acao.titulo + '\n' + acao.itens.join('\n') }); fala = acao.fala; }
+  else if (acao) { conversa.push({ de: 'acao', acao, estado: 'pendente' }); fala = acao.fala || (acao.titulo + '. ' + acao.itens.join('. ') + (acao.tipo !== 'nada' ? '. Confirmo?' : '')); }
+  else { contextoMarcar = null; const r = responder(p); conversa.push({ de: 'ia', t: r }); fala = r; }
   route(); window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+  if (porVoz || vozLigada) {
+    const i = conversa.length - 1, esperaSim = porVoz && conversa[i].de === 'acao' && conversa[i].acao.tipo !== 'nada', esperaMais = porVoz && acao && acao.tipo === 'pergunta';
+    falar(fala, esperaSim ? () => escutarConfirmacao(i) : esperaMais ? () => falarComAssistente() : null);
+  }
 }
 
 /* ---- Mais / ADM ---- */

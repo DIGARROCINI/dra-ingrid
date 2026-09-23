@@ -146,7 +146,7 @@ function seedDB() {
 function seedReal() {
   const s = seedDB();
   return {
-    seedVer: SEED_VER, cfg: s.cfg, tabela: s.tabela, protocolos: s.protocolos, checkupMeses: s.checkupMeses, formulario: s.formulario,
+    seedVer: SEED_VER, cfg: { ...s.cfg, whats: '(43) 99824-0833' }, tabela: s.tabela, protocolos: s.protocolos, checkupMeses: s.checkupMeses, formulario: s.formulario,
     tutores: [], animais: [], doses: [], agenda: [], atendimentos: [], orcamentos: [], lanc: [], estoque: [], receitas: [], avaliacoes: [], avisos: {},
   };
 }
