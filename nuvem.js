@@ -16,10 +16,10 @@
 /* ?demo no endereço = só dados de exemplo, sem tocar no banco dela */
 const MODO_REAL = !!SUPA_URL && !/[?&]demo\b/.test(location.search);
 const NUV_K = 'vetig_nuvem_v1';
-const NUV = { ultimo: null, pendente: false, puxou: false, status: 'ok', dona: null, conflito: false };
+const NUV = { ultimo: null, pendente: false, puxou: false, status: 'ok', dona: null, conflito: false, eid: null };   // eid: 1 = consultório da Ingrid, 2 = consultório de teste
 
-function nuvLer() { try { const s = JSON.parse(localStorage.getItem(NUV_K)) || {}; NUV.ultimo = s.ultimo || null; NUV.pendente = !!s.pendente; NUV.pubHash = s.pubHash || ''; } catch (e) { } }
-function nuvGravar() { try { localStorage.setItem(NUV_K, JSON.stringify({ ultimo: NUV.ultimo, pendente: NUV.pendente, pubHash: NUV.pubHash })); } catch (e) { } }
+function nuvLer() { try { const s = JSON.parse(localStorage.getItem(NUV_K)) || {}; NUV.ultimo = s.ultimo || null; NUV.pendente = !!s.pendente; NUV.pubHash = s.pubHash || ''; NUV.eid = s.eid || null; } catch (e) { } }
+function nuvGravar() { try { localStorage.setItem(NUV_K, JSON.stringify({ ultimo: NUV.ultimo, pendente: NUV.pendente, pubHash: NUV.pubHash, eid: NUV.eid })); } catch (e) { } }
 
 async function rest(caminho, opts = {}) {
   if (isLoggedIn()) await authEnsure();
@@ -38,13 +38,20 @@ function nuvPeso(d) { return ['tutores', 'animais', 'doses', 'agenda', 'atendime
 
 /* ---------- puxar ---------- */
 async function nuvPuxar() {
-  const r = await rest('estado?id=eq.1&select=data,updated_at');
+  // O banco só mostra a linha de quem entrou: 1 para a Ingrid, 2 para o consultório de teste.
+  const r = await rest('estado?select=id,data,updated_at&order=id&limit=1');
   if (!r.ok) throw new Error('estado ' + r.status);
   const [linha] = await r.json();
   if (!linha) { NUV.dona = false; return 'naoDona'; }   // as regras do banco esconderam: não é a dona
   NUV.dona = true;
+  if (NUV.eid && NUV.eid !== linha.id) {                // trocou de conta neste aparelho: o que está aqui é da outra conta, não sobe
+    NUV.pendente = false; NUV.puxou = false; NUV.ultimo = null; NUV.pubHash = '';
+    if (linha.id === 1) DB = seedReal();
+  }
+  NUV.eid = linha.id; nuvGravar();
   const remotoVazio = !linha.data || !Object.keys(linha.data).length;
   if (remotoVazio) {                                    // primeira vez: sobe o que tem aqui
+    if (linha.id === 2) { DB = seedDB(); salvarLocal(); }   // consultório de teste começa com os clientes de exemplo
     NUV.puxou = true; NUV.pendente = true; NUV.ultimo = linha.updated_at; nuvGravar();
     return 'primeiraVez';
   }
@@ -65,11 +72,11 @@ async function nuvEnviar() {
   if (!NUV.puxou || !NUV.dona || NUV.conflito) return;
   const agora = new Date().toISOString();
   const filtro = NUV.ultimo ? '&updated_at=eq.' + encodeURIComponent(NUV.ultimo) : '';
-  const r = await rest('estado?id=eq.1' + filtro, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ data: DB, updated_at: agora }) });
+  const r = await rest('estado?id=eq.' + (NUV.eid || 1) + filtro, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ data: DB, updated_at: agora }) });
   if (!r.ok) throw new Error('enviar ' + r.status);
   const linhas = await r.json();
   if (!linhas.length) {                                 // alguém gravou antes (outro aparelho)
-    const r2 = await rest('estado?id=eq.1&select=data,updated_at');
+    const r2 = await rest('estado?id=eq.' + (NUV.eid || 1) + '&select=id,data,updated_at');
     const [linha] = await r2.json();
     return nuvConflito(linha);
   }
@@ -146,9 +153,10 @@ async function nuvCiclo(motivo = '') {
     const res = await nuvPuxar();
     if (res === 'naoDona') { nuvStatus('naoDona'); route(); return; }
     if (res === 'conflito') return;
-    const chegaram = await nuvPedidos();
+    const daIngrid = NUV.eid === 1;                     // teste não importa pedidos nem mexe na vitrine dos tutores
+    const chegaram = daIngrid ? await nuvPedidos() : 0;
     if (NUV.pendente) await nuvEnviar();
-    await nuvVitrine();
+    if (daIngrid) await nuvVitrine();
     nuvStatus('ok');
     if (JSON.stringify(DB) !== antes && !isBusyEditing()) route({ manterScroll: true });
     if (chegaram) toast(chegaram === 1 ? 'Chegou 1 pedido de horário' : `Chegaram ${chegaram} pedidos de horário`);
@@ -165,7 +173,8 @@ function nuvStatus(s) {
   NUV.status = s;
   const f = document.getElementById('faixa');
   if (!f || !MODO_REAL) return;
-  const txt = { offline: 'Sem internet — tudo fica guardado neste aparelho e sobe quando a conexão voltar.', erro: 'Não consegui falar com a nuvem agora. Tento de novo sozinho.', naoDona: '' }[s];
+  const teste = NUV.eid === 2 && isLoggedIn() ? 'Consultório de TESTE — clientes de exemplo. Nada daqui chega à Dra. Ingrid.' : '';
+  const txt = { offline: 'Sem internet — tudo fica guardado neste aparelho e sobe quando a conexão voltar.', erro: 'Não consegui falar com a nuvem agora. Tento de novo sozinho.', naoDona: '' }[s] || teste;
   f.style.display = txt ? 'flex' : 'none';
   if (txt) f.innerHTML = `<span>${txt}</span>`;
 }

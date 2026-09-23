@@ -1190,7 +1190,7 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
     <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.6 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.7 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 TELAS.adm = sub => {
   if (sub === 'tabela') {
@@ -1575,9 +1575,10 @@ async function enviarPedido() {
 carregar();
 if (MODO_REAL) {
   const volta = authFromHash();                        // link de confirmação ou de senha nova no e-mail
-  if (volta && volta.tipo === 'recovery') history.replaceState(null, '', location.pathname + '#/nova-senha');
+  const criaSenha = volta && (volta.tipo === 'recovery' || volta.tipo === 'invite');   // convite também escolhe a senha
+  if (criaSenha) history.replaceState(null, '', location.pathname + '#/nova-senha');
   nuvIniciar();
-  route();
+  try { route(); } catch (e) { console.error(e); }      // um erro de tela não pode impedir a sincronia logo abaixo
   if (volta && volta.erro) toast('O link do e-mail não valeu: ' + volta.erro);
-  if (isLoggedIn() && !(volta && volta.tipo === 'recovery')) nuvCiclo('abertura').then(() => { if (NUV.dona) cofreGuardar('abertura'); if (volta && volta.tipo === 'signup') toast('E-mail confirmado — bem-vinda!'); });
+  if (isLoggedIn() && !criaSenha) nuvCiclo('abertura').then(() => { if (NUV.dona) cofreGuardar('abertura'); if (volta && volta.tipo === 'signup') toast('E-mail confirmado — bem-vinda!'); });
 } else route();
