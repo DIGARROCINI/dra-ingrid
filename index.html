@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Dra. Ingrid · Veterinária a domicílio</title>
+<meta name="theme-color" content="#C3BFF5">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --lil:#C3BFF5; --lil-2:#E9E7FC; --lil-3:#F6F5FE; --lil-f:#5B54B8; --tinta-lil:#3D3A57;
+  --coral:#FF7270; --coral-2:#FFE6E5; --coral-f:#C4302E;
+  --verde:#137245; --verde-2:#DDF8E8; --wa:#15803D;
+  --azul-2:#DDF3F9; --azul-f:#006A82; --ambar-2:#FDF1DC; --ambar-f:#8A5A12;
+  --tinta:#1D1B2E; --tinta-2:#55536B; --linha:#E4E2F0; --fundo:#FAFAFD; --card:#fff;
+  --r:16px; --sombra:0 1px 2px rgba(29,27,46,.06),0 4px 16px rgba(29,27,46,.05);
+  --rail-h:64px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;font-family:Figtree,system-ui,sans-serif;background:var(--fundo);color:var(--tinta);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+a{color:var(--lil-f)}
+h1,h2,h3{margin:0;line-height:1.2}
+h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
+h2{font-size:17px;font-weight:700}
+h3{font-size:15px;font-weight:700}
+.muted{color:var(--tinta-2)} .small{font-size:13px} .tiny{font-size:12px}
+.row{display:flex;gap:10px;align-items:center} .wrap{flex-wrap:wrap} .grow{flex:1;min-width:0} .between{justify-content:space-between}
+.stack>*+*{margin-top:12px}
+.ic{width:20px;height:20px;flex:none}
+.ic.sm{width:16px;height:16px} .ic.lg{width:24px;height:24px}
+:focus-visible{outline:3px solid var(--lil-f);outline-offset:2px;border-radius:10px}
+
+/* faixa do protótipo — no topo e fora do fluxo fixo (a barra de abas mora embaixo) */
+.faixa{background:var(--tinta);color:#fff;font-size:12.5px;padding:6px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+.faixa button{background:var(--lil);color:var(--tinta);border:0;border-radius:99px;padding:5px 12px;font:600 12.5px Figtree;cursor:pointer}
+
+/* barra de topo compacta (telas internas) */
+.barra-app{position:sticky;top:0;z-index:45;background:rgba(250,250,253,.94);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--linha)}
+.barra-app .in{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:4px;min-height:56px;padding:0 8px}
+.barra-app h1{font-size:18px;font-weight:800;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px}
+.barra-app .sub{display:block;font-size:12.5px;color:var(--tinta-2);font-weight:500;letter-spacing:0}
+.icbtn{width:44px;height:44px;border-radius:12px;border:0;background:transparent;color:var(--tinta);display:inline-grid;place-items:center;cursor:pointer;text-decoration:none;flex:none}
+.icbtn:hover{background:var(--lil-3)}
+.icbtn.fundo{background:#fff;border:1px solid var(--linha)}
+
+/* herói (só na tela Hoje e no início do tutor) */
+.hero{background:var(--lil);padding:14px 16px 20px;border-radius:0 0 26px 26px}
+.hero .in{max-width:760px;margin:0 auto}
+.marca{display:flex;align-items:center;gap:10px}
+.marca img{height:30px}
+.marca b{font-size:14px;font-weight:700}
+.marca span{margin-left:auto;font-size:12px;color:var(--tinta-lil)}
+.hero h1{margin-top:12px}
+.hero .sub{color:var(--tinta-lil);margin-top:2px}
+
+main{max-width:760px;margin:0 auto;padding:16px 16px calc(var(--rail-h) + 40px)}
+main.com-cta{padding-bottom:calc(var(--rail-h) + 110px)}
+.card{background:var(--card);border:1px solid var(--linha);border-radius:var(--r);padding:14px;box-shadow:var(--sombra)}
+.card+.card{margin-top:12px}
+a.card{display:flex;text-decoration:none;color:inherit}
+.secao{margin:24px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.secao h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--tinta-2);font-weight:700}
+.secao .cont{background:var(--coral-f);color:#fff;border-radius:99px;font-size:12px;font-weight:700;padding:1px 8px;margin-left:6px;letter-spacing:0}
+
+.item{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--linha)}
+.item:first-child{border-top:0;padding-top:2px}
+.item:last-child{padding-bottom:2px}
+a.item{text-decoration:none;color:inherit}
+.ava{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--lil-2);color:var(--lil-f)}
+.ava.gato{background:var(--coral-2);color:var(--coral-f)}
+.ava.xl{width:64px;height:64px}.ava.xl .ic{width:32px;height:32px}
+.ava.dupla{width:auto;min-width:42px;padding:0 9px;border-radius:99px;gap:2px;display:flex}
+.ava.dupla .ic{width:18px;height:18px}
+.hora{font-weight:800;font-size:16px;min-width:52px;font-variant-numeric:tabular-nums}
+
+.tag{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:2px 9px;font-size:12px;font-weight:600;background:var(--lil-2);color:var(--lil-f);white-space:nowrap}
+.tag.coral{background:var(--coral-2);color:var(--coral-f)}
+.tag.verde{background:var(--verde-2);color:var(--verde)}
+.tag.azul{background:var(--azul-2);color:var(--azul-f)}
+.tag.ambar{background:var(--ambar-2);color:var(--ambar-f)}
+.tag.cinza{background:#EEEDF3;color:var(--tinta-2)}
+.exemplo{background:#FFF4CC;color:#7A5B00;font-size:11px;padding:1px 7px;border-radius:99px;font-weight:700;white-space:nowrap}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:12px;padding:10px 16px;font:600 14.5px Figtree;cursor:pointer;background:var(--tinta);color:#fff;text-decoration:none;transition:filter .15s,opacity .15s}
+.btn.sec{background:var(--lil-2);color:var(--lil-f)}
+.btn.ghost{background:#fff;color:var(--lil-f);border:1px solid var(--linha)}
+.btn.wa{background:var(--wa)}
+.btn.coral{background:var(--coral-f)}
+.btn.mini{padding:6px 11px;font-size:13px;border-radius:10px}
+.btn.full{width:100%}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:active:not(:disabled),.icbtn:active,a.card:active,a.item:active,.chip:active,.kpi:active{filter:brightness(.93)}
+
+.acoes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.acoes .btn{flex-direction:column;gap:4px;padding:12px 4px;font-size:13px}
+
+.kpis{display:flex;gap:8px;overflow-x:auto;margin:0 -16px;padding:2px 16px 4px;scrollbar-width:none}
+.kpis::-webkit-scrollbar{display:none}
+.kpi{flex:1 0 132px;background:var(--card);border:1px solid var(--linha);border-radius:14px;padding:10px 12px;text-decoration:none;color:inherit;display:block}
+.kpi b{display:block;font-size:21px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi span{font-size:12.5px;color:var(--tinta-2)}
+.kpi.alerta b{color:var(--coral-f)}
+.kpis-grade{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kpis-grade .kpi b{font-size:22px}
+
+label{display:block;font-size:13px;font-weight:600;color:var(--tinta-2);margin:12px 0 5px}
+input,select,textarea{width:100%;border:1px solid var(--linha);border-radius:10px;padding:10px 12px;font:15px Figtree;background:#fff;color:var(--tinta)}
+textarea{min-height:64px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--lil);border-color:var(--lil-f)}
+input[type=checkbox],input[type=radio]{accent-color:var(--lil-f);width:22px;height:22px;flex:none;margin:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:0 10px}
+.campo-mic{position:relative}
+.campo-mic textarea{padding-right:52px}
+.campo-mic .mic{position:absolute;right:4px;top:4px}
+details{border:1px solid var(--linha);border-radius:12px;background:#fff;margin-top:10px}
+details>summary{padding:12px 14px;font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:44px}
+details>summary::-webkit-details-marker{display:none}
+details>summary::after{content:'+';color:var(--lil-f);font-weight:800;font-size:18px}
+details[open]>summary::after{content:'–'}
+details>div{padding:0 14px 14px}
+
+.abas{display:flex;gap:6px;overflow-x:auto;margin:14px 0 4px;padding-bottom:2px;scrollbar-width:none}
+.abas::-webkit-scrollbar{display:none}
+.abas button,.chip{flex:none;border:1px solid var(--linha);background:#fff;border-radius:99px;padding:7px 14px;font:600 13.5px Figtree;color:var(--tinta-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.abas button.on,.chip.on{background:var(--tinta);color:#fff;border-color:var(--tinta)}
+
+/* exame físico: um toque por sistema */
+.sist{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--linha);flex-wrap:wrap}
+.sist:first-child{border-top:0}
+.sist b{flex:1;min-width:120px;font-weight:600;font-size:14px}
+.seg{display:inline-flex;border:1px solid var(--linha);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:#fff;padding:7px 12px;font:600 13px Figtree;color:var(--tinta-2);cursor:pointer}
+.seg button+button{border-left:1px solid var(--linha)}
+.seg button.on.ok{background:var(--verde-2);color:var(--verde)}
+.seg button.on.alt{background:var(--coral-2);color:var(--coral-f)}
+.sist input{flex-basis:100%}
+
+.dias{display:flex;gap:6px;overflow-x:auto;margin:6px 0 12px;scrollbar-width:none}
+.dias::-webkit-scrollbar{display:none}
+.dias button{flex:none;width:56px;border:1px solid var(--linha);background:#fff;border-radius:14px;padding:7px 0;font:600 12px Figtree;color:var(--tinta-2);cursor:pointer;text-align:center;position:relative}
+.dias button b{display:block;font-size:19px;color:var(--tinta)}
+.dias button.on{background:var(--lil);border-color:var(--lil-f)}
+.dias button:disabled{opacity:.35;cursor:not-allowed}
+.dias button i{position:absolute;top:4px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--coral)}
+.dias button small{display:block;font-size:10.5px;color:var(--tinta-2);font-weight:600}
+
+.livre{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px dashed #CFCCE3;border-radius:12px;padding:6px 6px 6px 12px;margin:8px 0;color:var(--tinta-2);font-size:13.5px}
+
+/* barra de abas: embaixo no celular, à esquerda no computador */
+.rail{position:fixed;bottom:0;left:0;right:0;z-index:40;background:#fff;border-top:1px solid var(--linha);display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+.rail a{flex:1;text-align:center;text-decoration:none;color:var(--tinta-2);font-size:11.5px;font-weight:600;padding:6px 0;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:48px;justify-content:center}
+.rail a .ic{width:23px;height:23px}
+.rail a.on{color:var(--lil-f);background:var(--lil-3)}
+.rail-marca{display:none}
+body.tutor .rail{display:none}
+
+/* CTA fixo acima da barra de abas */
+.cta-fixa{position:fixed;left:0;right:0;bottom:calc(var(--rail-h) + env(safe-area-inset-bottom));z-index:35;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-top:1px solid var(--linha);padding:10px 16px}
+.cta-fixa .in{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:12px}
+body.tutor .cta-fixa{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+
+@media(min-width:960px){
+  :root{--rail-h:0px}
+  .rail{top:0;bottom:0;right:auto;width:232px;flex-direction:column;justify-content:flex-start;gap:4px;padding:18px 12px;border-top:0;border-right:1px solid var(--linha)}
+  .rail a{flex:none;flex-direction:row;gap:12px;padding:10px 14px;font-size:14.5px;justify-content:flex-start;min-height:44px}
+  .rail-marca{display:flex;align-items:center;gap:10px;padding:4px 10px 18px;font-weight:700;font-size:14px}
+  .rail-marca img{height:30px}
+  body:not(.tutor) #app,body:not(.tutor) .faixa{margin-left:232px}
+  body:not(.tutor) .cta-fixa,body:not(.tutor) .chatbox{left:232px}
+}
+
+.menu a{display:flex;align-items:center;gap:12px;padding:12px 2px;border-top:1px solid var(--linha);text-decoration:none;color:var(--tinta);font-weight:600;min-height:56px}
+.menu a:first-child{border-top:0}
+.menu a span.icm{width:38px;height:38px;border-radius:11px;background:var(--lil-2);color:var(--lil-f);display:grid;place-items:center;flex:none}
+.menu a small{display:block;font-weight:400;color:var(--tinta-2);font-size:12.5px}
+
+.barra{height:8px;border-radius:99px;background:var(--lil-2);overflow:hidden}
+.barra i{display:block;height:100%;background:var(--lil-f);border-radius:99px}
+
+/* próxima visita (card dentro do herói) */
+.proxima{background:#fff;border-radius:18px;padding:14px;margin-top:14px;box-shadow:0 6px 20px rgba(61,58,87,.12)}
+.proxima .quando{font-size:12px;font-weight:700;color:var(--lil-f);text-transform:uppercase;letter-spacing:.06em}
+.proxima .botoes{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:8px;margin-top:12px}
+.proxima .botoes .btn{padding:10px 4px;font-size:13.5px;gap:4px;white-space:nowrap}
+
+/* cuidados pendentes do animal */
+.cuidado{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 12px;border-radius:12px;background:var(--ambar-2);color:var(--ambar-f);margin-top:8px;font-size:14px}
+.cuidado.coral{background:var(--coral-2);color:var(--coral-f)}
+.cuidado.azul{background:var(--azul-2);color:var(--azul-f)}
+.cuidado b{color:var(--tinta)}
+
+.chat{display:flex;flex-direction:column;gap:10px}
+.msg{max-width:88%;padding:10px 13px;border-radius:16px;white-space:pre-wrap}
+.msg.eu{align-self:flex-end;background:var(--tinta);color:#fff;border-bottom-right-radius:4px}
+.msg.ia{align-self:flex-start;background:#fff;border:1px solid var(--linha);border-bottom-left-radius:4px}
+.acao{align-self:stretch;background:#fff;border:2px solid var(--lil);border-radius:16px;padding:12px 14px}
+.acao ul{margin:6px 0 10px;padding-left:18px}
+.acao.feita{border-color:var(--verde-2);opacity:.85}
+.sugs{display:flex;gap:6px;flex-wrap:wrap}
+.sugs button{border:1px solid var(--linha);background:#fff;border-radius:99px;padding:7px 12px;font:500 13px Figtree;cursor:pointer;color:var(--lil-f)}
+.chatbox{position:fixed;left:0;right:0;bottom:calc(var(--rail-h) + env(safe-area-inset-bottom));background:var(--fundo);padding:10px 16px;border-top:1px solid var(--linha);z-index:30}
+.chatbox form{max-width:760px;margin:0 auto;display:flex;gap:8px;align-items:center}
+
+.ov{position:fixed;inset:0;background:rgba(29,27,46,.5);z-index:80;display:none;align-items:flex-end;justify-content:center}
+.ov.on{display:flex}
+.folha{background:#fff;width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:22px 22px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom))}
+.folha::before{content:'';display:block;width:40px;height:5px;border-radius:9px;background:#D9D7E6;margin:0 auto 10px}
+@media(min-width:700px){.ov{align-items:center}.folha{border-radius:22px}.folha::before{display:none}}
+.folha .fecha{float:right}
+
+.aviso{border-radius:12px;padding:10px 12px;font-size:13.5px;background:var(--ambar-2);color:#6E4A10}
+.aviso.coral{background:var(--coral-2);color:#9E2A28}
+.aviso.lil{background:var(--lil-3);color:var(--lil-f)}
+.estrelas button{font-size:36px;background:none;border:0;cursor:pointer;color:#D9D7E6;padding:0 2px;min-width:44px;min-height:44px}
+.estrelas button.on{color:#E0A200}
+
+.toast{position:fixed;left:50%;bottom:calc(var(--rail-h) + 24px);transform:translateX(-50%);background:var(--tinta);color:#fff;padding:10px 14px;border-radius:12px;font-size:14px;z-index:90;opacity:0;transition:opacity .2s;pointer-events:none;display:flex;gap:12px;align-items:center;max-width:92vw}
+.toast.on{opacity:1}
+.toast.on.acao{pointer-events:auto}
+.toast button{background:transparent;border:0;color:var(--lil);font:700 14px Figtree;cursor:pointer;padding:6px 4px;min-height:36px}
+.novaver{position:fixed;left:12px;right:12px;bottom:calc(var(--rail-h) + 20px);z-index:95;background:var(--lil-f);color:#fff;border-radius:14px;padding:12px 14px;display:none;align-items:center;justify-content:space-between;gap:10px}
+.novaver.on{display:flex}
+.novaver button{background:#fff;color:var(--lil-f);border:0;border-radius:10px;padding:8px 12px;font:700 13px Figtree}
+
+.preco-lin{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;color:var(--tinta);font-weight:500;margin:0;border-top:1px solid var(--linha);cursor:pointer}
+.preco-lin:first-of-type{border-top:0}
+.preco-lin b{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.receita{border:1px solid var(--linha);border-radius:12px;padding:18px;background:#fff;font-size:14px}
+.receita h3{text-align:center;margin-bottom:10px}
+.receita .ass{margin-top:28px;border-top:1px solid var(--tinta);width:60%;margin-left:auto;margin-right:auto;text-align:center;padding-top:4px;font-size:13px}
+
+/* peça 8: dedo não é seta */
+@media (pointer:coarse){
+  .btn,.abas button,.chip,.sugs button,.faixa button,.dias button,.seg button{min-height:44px}
+  input,select,textarea,button{font-size:16px}
+  .btn.mini{min-height:44px;padding:8px 14px}
+  input:not([type=checkbox]):not([type=radio]),select{min-height:44px}
+  .secao a,a.small,.small a,.tiny a{display:inline-flex;align-items:center;min-height:44px}
+  .preco-lin,label.row{min-height:44px}
+}
+@media print{
+  body *{visibility:hidden}
+  .receita,.receita *{visibility:visible}
+  .receita{position:absolute;left:0;top:0;width:100%;border:0}
+}
+</style>
+</head>
+<body>
+<div class="faixa" id="faixa"></div>
+<div id="app"></div>
+<nav class="rail" id="rail" aria-label="Navegação principal"></nav>
+<div class="ov" id="ov" role="dialog" aria-modal="true"><div class="folha" id="folha"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="novaver" id="novaver"><span>Tem uma versão nova do app.</span><button onclick="location.reload()">Atualizar</button></div>
+
+<script src="dados.js"></script>
+<script src="icones.js"></script>
+<script src="app.js"></script>
+<script>
+/* Atualização do código (fórmula app-um-so, peças 1–5) */
+(function(){
+  if(!('serviceWorker' in navigator) || location.protocol==='file:') return;
+  const jaTinhaControlador = !!navigator.serviceWorker.controller;   // peça 4: ler ANTES do controllerchange
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {   // peça 1
+    let ultima = 0;
+    const conferir = () => { const t = Date.now(); if (t - ultima < 60000) return; ultima = t; reg.update().catch(()=>{}); };
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') conferir(); });   // peça 3
+    setInterval(conferir, 3600000);
+  });
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!jaTinhaControlador) return;
+    if (!isBusyEditing()) location.reload();                           // peça 5
+    else document.getElementById('novaver').classList.add('on');
+  });
+})();
+</script>
+</body>
+</html>
