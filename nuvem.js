@@ -111,7 +111,7 @@ async function nuvPedidos() {
     let t = fone.length >= 8 && DB.tutores.find(x => soDigitos(x.fone).slice(-9) === fone);
     if (!t) { t = { id: uid('t'), nome: d.nome || 'Tutor sem nome', fone: d.fone || '', cpf: '', email: '', endereco: d.endereco || '', bairro: d.bairro || '', faixa: 'd1', origem: 'Link', desde: isoHoje(), provisorio: true }; DB.tutores.push(t); }
     let a = DB.animais.find(x => x.tutorId === t.id && semAcento(x.nome) === semAcento(d.animal));
-    if (!a) { a = { id: uid('a'), tutorId: t.id, nome: d.animal || 'Animal', especie: d.especie === 'Gato' ? 'Gato' : 'Cão', raca: 'a confirmar', sexo: '', castrado: false, nasc: isoHoje(), pesos: [], checkup: null, provisorio: true }; DB.animais.push(a); }
+    if (!a) { a = { id: uid('a'), tutorId: t.id, nome: d.animal || 'Animal', especie: d.especie === 'Gato' ? 'Gato' : 'Cão', raca: 'a confirmar', sexo: '', castrado: false, nasc: '', pesos: [], checkup: null, provisorio: true }; DB.animais.push(a); }
     const [servico, ...extras] = (d.servicos && d.servicos.length ? d.servicos : ['s1']);
     DB.agenda.push({ id: uid('g'), pedidoId: p.id, data: d.data, hora: d.hora, animalId: a.id, servico, extras, status: 'pedido', origem: 'tutor', obs: d.obs || 'Pedido pelo link' });
     novos.push(p.id);

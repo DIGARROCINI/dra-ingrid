@@ -22,6 +22,7 @@ function quando(iso) { const n = diasAte(iso); if (n === 0) return 'hoje'; if (n
 const minutos = h => +h.slice(0, 2) * 60 + +h.slice(3, 5);
 const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 function idade(nasc) {
+  if (!nasc) return 'idade a confirmar';
   const dias = -diasAte(nasc);
   if (dias < 60) return Math.max(1, Math.round(dias / 7)) + ' semanas';
   if (dias < 365) return Math.round(dias / 30.4) + ' meses';
@@ -1031,7 +1032,14 @@ function executarAcao(i) {
       const v = registrarDose(d.animalId, d.escolha, d.estoqueId), t = DB.tabela.find(x => x.vacina === v.vacina);
       if (t) DB.orcamentos.push({ id: uid('o'), tutorId: animal(d.animalId).tutorId, animalId: d.animalId, data: isoHoje(), itens: [{ tab: t.id, qtd: 1 }], status: 'enviado', forma: '' });
     }
-    if (c.acao.tipo === 'marcar') DB.agenda.push({ id: uid('g'), animalId: d.animalId, servico: d.servico || 's1', data: d.data, hora: d.hora, obs: 'Marcado pelo assistente', status: 'confirmado', origem: 'ingrid' });
+    if (c.acao.tipo === 'marcar') DB.agenda.push({ id: uid('g'), animalId: d.animalId, servico: d.servico || 's1', data: d.data, hora: d.hora, obs: d.obs || 'Marcado pelo assistente', status: 'confirmado', origem: 'ingrid' });
+    if (c.acao.tipo === 'cadastro') {
+      const t = { id: uid('t'), nome: d.tutor.nome, fone: d.tutor.fone || '', cpf: '', email: '', endereco: d.tutor.endereco || '', bairro: d.tutor.bairro || '', faixa: 'd1', origem: 'Assistente', desde: isoHoje() };
+      DB.tutores.push(t);
+      if (d.animal) DB.animais.push({ id: uid('a'), tutorId: t.id, nome: d.animal.nome, especie: d.animal.especie, raca: d.animal.raca || 'SRD', sexo: '', castrado: false, nasc: '', pesos: [], checkup: null });
+    }
+    if (c.acao.tipo === 'preco') { const t = tab(d.id); if (t) { t.preco = d.preco; delete t.exemplo; } }
+    if (c.acao.tipo === 'ajuste') (DB.ajustes = DB.ajustes || []).push({ id: uid('aj'), data: isoHoje(), texto: d.texto, status: 'novo' });
     if (c.acao.tipo === 'pagou') d.ids.forEach(id => baixarOrcDados(id, d.forma));
     c.estado = 'feito';
   });
@@ -1078,16 +1086,81 @@ function responder(p) {
   return 'Neste protótipo eu respondo sobre vacinas, agenda, doses da sua lista, financeiro, estoque, check-ups e clientes pelo nome — e já faço: registrar peso, vacina aplicada, marcar visita e dar baixa em pagamento. Sempre mostro o que vai mudar antes.';
 }
 TELAS.assistente = () => barra('Assistente', { sub: 'Fale ou escreva — ele faz no app', acoes: acaoBtn(vozLigada ? 'volume-2' : 'volume-x', vozLigada ? 'Desligar a voz' : 'Ligar a voz', 'alternarVoz()') }) + `<main style="padding-bottom:calc(var(--rail-h) + 110px)">
-  <div class="aviso lil small">Protótipo: respostas montadas por regras sobre os dados do app. No app real é a IA (Claude), com os mesmos dados — e <b>nunca inventa dose</b>: só usa a lista conferida no VetSmart.</div>
+  <div class="aviso lil small">${MODO_REAL ? 'Assistente com IA (Claude). Ele consulta seus clientes, agenda e financeiro, e toda mudança vem num cartão para você confirmar. Dose, só da sua lista conferida no VetSmart.' : 'Demonstração: respostas montadas por regras sobre os dados de exemplo. No app real é a IA (Claude) — e <b>nunca inventa dose</b>: só usa a lista conferida no VetSmart.'}</div>
   <div class="chat" id="chat" style="margin-top:14px">${conversa.length ? conversa.map((m, i) => m.de === 'acao' ? `
     <div class="acao ${m.estado !== 'pendente' ? 'feita' : ''}"><b>${esc(m.acao.titulo)}</b>${m.acao.itens.length ? `<ul class="small">${m.acao.itens.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
       ${m.estado === 'pendente' && m.acao.tipo !== 'nada' ? `<div class="row"><button class="btn mini" onclick="executarAcao(${i})">${ic('check', 'sm')} Confirmar</button><button class="btn mini ghost" onclick="cancelarAcao(${i})">Cancelar</button></div>` : m.estado === 'feito' ? `<span class="tag verde">${ic('check', 'sm')} feito no app</span>` : m.estado === 'cancelado' ? '<span class="tag cinza">cancelado</span>' : ''}</div>`
-    : `<div class="msg ${m.de}">${esc(m.t)}</div>`).join('') : `<div class="msg ia">Oi, Ingrid! Posso responder sobre o seu dia e também fazer por você: registrar peso, vacina, marcar visita, dar baixa em pagamento. Eu sempre mostro o que vai mudar antes.</div>`}</div>
+    : `<div class="msg ${m.de}${m.carregando ? ' carregando' : ''}" data-msg="${i}">${esc(m.t) || (m.carregando ? 'pensando…' : '')}</div>`).join('') : `<div class="msg ia">Oi, Ingrid! Posso responder sobre o seu dia e também fazer por você: registrar peso, vacina, marcar visita, dar baixa em pagamento. Eu sempre mostro o que vai mudar antes.</div>`}</div>
   <div class="secao"><h2>Perguntar</h2></div><div class="sugs">${SUG_PERGUNTAR.map(s => `<button onclick="perguntar(this.textContent)">${s}</button>`).join('')}</div>
   <div class="secao"><h2>Mandar fazer</h2></div><div class="sugs">${SUG_FAZER.map(s => `<button onclick="perguntar(this.textContent)">${s}</button>`).join('')}</div>
   </main><div class="chatbox"><form onsubmit="event.preventDefault();perguntar($('#chIn').value)"><button type="button" id="micAssist" class="btn mic-grande" aria-label="Falar com o assistente" onclick="falarComAssistente()">${ic('mic')}</button><input id="chIn" aria-label="Sua mensagem" placeholder="Toque no microfone e fale" autocomplete="off" class="grow"><button class="btn sec" aria-label="Enviar">${ic('send')}</button></form></div>`;
+
+/* ---------- assistente com IA (Claude, pela função "assistente" no Supabase dela) ---------- */
+let iaOcupada = false;
+function historicoIA() {
+  const h = [];
+  for (const m of conversa) {
+    const role = m.de === 'eu' ? 'user' : 'assistant';
+    const t = m.de === 'acao' ? `[cartão: ${m.acao.titulo} — ${m.estado === 'feito' ? 'confirmado pela Ingrid' : m.estado === 'cancelado' ? 'cancelado' : 'aguardando confirmação'}]` : m.erro ? '' : m.t;
+    if (!t) continue;
+    if (h.length && h[h.length - 1].role === role) h[h.length - 1].content += '\n' + t;   // falas seguidas do mesmo lado viram uma só
+    else h.push({ role, content: t });
+  }
+  while (h.length && h[0].role !== 'user') h.shift();
+  return h.slice(-16);
+}
+function atualizarMsg(i) { const el = document.querySelector(`[data-msg="${i}"]`); if (el) { el.textContent = conversa[i].t || '…'; window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }); } }
+async function perguntarIA(p, porVoz) {
+  if (iaOcupada) return toast('Espere eu terminar a resposta anterior');
+  iaOcupada = true;
+  conversa.push({ de: 'eu', t: p });
+  const hist = historicoIA();
+  conversa.push({ de: 'ia', t: '', carregando: true });
+  let atual = conversa.length - 1, cartaoIdx = -1, depoisCartao = false, falado = '';
+  const desce = () => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+  route(); desce();
+  if (NUV.pendente) { try { await nuvEnviar(); } catch (e) { } }   // a IA lê a nuvem: manda antes o que mudou aqui
+  const ctrl = new AbortController(), corta = setTimeout(() => ctrl.abort(), 90000);
+  try {
+    await authEnsure();
+    const r = await fetch(SUPA_URL + '/functions/v1/assistente', { method: 'POST', signal: ctrl.signal, headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ mensagens: hist, hoje: isoHoje() }) });
+    if (!r.ok || !r.body) throw new Error(r.status === 403 ? 'sem_acesso' : r.status === 404 ? 'sem_funcao' : r.status === 503 ? 'chave_invalida' : 'http ' + r.status);
+    const leitor = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await leitor.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let k;
+      while ((k = buf.indexOf('\n\n')) >= 0) {
+        const bloco = buf.slice(0, k); buf = buf.slice(k + 2);
+        if (!bloco.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(bloco.slice(6)); } catch (e) { continue; }
+        if (ev.t === 'texto') {
+          if (depoisCartao) { conversa.push({ de: 'ia', t: '' }); atual = conversa.length - 1; depoisCartao = false; route({ manterScroll: true }); }
+          conversa[atual].t = (conversa[atual].t + ev.d).replace(/^\s+/, ''); conversa[atual].carregando = false; falado += ev.d;
+          atualizarMsg(atual);
+        } else if (ev.t === 'cartao') {
+          if (!conversa[atual].t) conversa.splice(atual, 1);   // o cartão veio antes de qualquer texto: some o "pensando…"
+          conversa.push({ de: 'acao', acao: ev.acao, estado: 'pendente' }); cartaoIdx = conversa.length - 1; atual = cartaoIdx; depoisCartao = true;
+          route({ manterScroll: true }); desce();
+        } else if (ev.t === 'erro') throw new Error(ev.d);
+      }
+    }
+  } catch (e) {
+    const m = String(e.message || e);
+    const aviso = m === 'chave_invalida' ? 'O assistente ainda não está ligado: falta a chave da IA no servidor.' : m === 'sem_funcao' ? 'O assistente ainda não foi instalado no servidor.' : m === 'sem_acesso' ? 'Não consegui ler o consultório — saia e entre de novo.' : m === 'limite' ? 'Muita gente pedindo ao mesmo tempo — tente em alguns segundos.' : /abort/i.test(m) ? 'Demorou demais para responder. Tente de novo.' : 'Não consegui falar com o assistente agora (internet?). Tente de novo.';
+    if (conversa[atual].de === 'ia' && !conversa[atual].t) Object.assign(conversa[atual], { t: aviso, erro: true }); else { conversa.push({ de: 'ia', t: aviso, erro: true }); atual = conversa.length - 1; }
+    falado = aviso;
+  } finally { clearTimeout(corta); iaOcupada = false; if (conversa[atual].de === 'ia') conversa[atual].carregando = false; }
+  if (conversa[atual].de === 'ia' && !conversa[atual].t) conversa[atual].t = 'Pronto.';
+  route({ manterScroll: true }); desce();
+  if (porVoz || vozLigada) falar(falado.trim() || conversa[atual].t || '', porVoz && cartaoIdx >= 0 ? () => escutarConfirmacao(cartaoIdx) : null);
+}
+
 function perguntar(p, porVoz = false) {
   if (!p || !p.trim()) return;
+  if (MODO_REAL && isLoggedIn()) return perguntarIA(p.trim(), porVoz);
   conversa.push({ de: 'eu', t: p.trim() });
   const q = semAcento(p);
   let acao = null;
@@ -1110,12 +1183,13 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   ${[['/financeiro', 'wallet', 'Financeiro', 'Entradas, saídas, a receber'], ['/estoque', 'package', 'Estoque', 'Vacinas, medicamentos, insumos'], ['/doses', 'scale', 'Calcular dose', 'Lista de medicamentos conferida no VetSmart'], ['/avaliacoes', 'star', 'Avaliações', 'O que os tutores acharam'],
     ['/adm/tabela', 'tag', 'Tabela de valores', 'Vacinas, consultas, deslocamento'], ['/adm/protocolos', 'shield-check', 'Protocolos de vacina', 'Filhote e anual · check-up'], ['/adm/perfil', 'id-card', 'Meus dados profissionais', 'CRMV, MAPA, Pix, WhatsApp, Google'], ['/t', 'eye', 'Ver como tutor', 'O link que o cliente recebe']]
     .map(([h, i, t, s]) => `<a href="#${h}"><span class="icm">${ic(i)}</span><span class="grow">${t}<small>${s}</small></span>${ic('chevron-right')}</a>`).join('')}
+  ${(DB.ajustes || []).length ? `<a href="#/ajustes"><span class="icm">${ic('clipboard-list')}</span><span class="grow">Pedidos de ajuste no app<small>${DB.ajustes.filter(x => x.status === 'novo').length} para o Eugênio</small></span>${ic('chevron-right')}</a>` : ''}
   ${MODO_REAL ? `<a href="#/copias"><span class="icm">${ic('shield-check')}</span><span class="grow">Cópias de segurança<small>Guardadas sozinhas neste aparelho</small></span>${ic('chevron-right')}</a>` : ''}
   </div>
   ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
     <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.4 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.6 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 TELAS.adm = sub => {
   if (sub === 'tabela') {
@@ -1380,6 +1454,10 @@ async function trocarSenha() {
   if (r.ok) { toast('Senha salva'); history.replaceState(null, '', location.pathname); await depoisDeEntrar(); }
   else { $('#nsMsg').textContent = 'Não deu: ' + (r.error || 'tente de novo'); b.disabled = false; }
 }
+
+/* ---- Pedidos de ajuste (anotados pelo assistente, para o Eugênio) ---- */
+TELAS.ajustes = () => barra('Pedidos de ajuste', { voltar: '/mais', sub: 'O que você pediu para mudar no app' }) + `<main><div class="card">${(DB.ajustes || []).slice().reverse().map(x => `<div class="item"><div class="grow"><b>${esc(x.texto)}</b><div class="small muted">${dataCurta(x.data)}</div></div><span class="tag ${x.status === 'feito' ? 'verde' : 'ambar'}">${x.status === 'feito' ? 'feito' : 'anotado'}</span></div>`).join('') || '<p class="muted" style="margin:0">Nada ainda.</p>'}</div>
+  <p class="small muted" style="margin-top:12px">Peça ao assistente, por exemplo: "queria um campo para o microchip". Ele anota aqui e o Eugênio faz.</p></main>`;
 
 /* ---- Cópias de segurança (cofre) ---- */
 TELAS.copias = () => {
