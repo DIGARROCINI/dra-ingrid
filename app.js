@@ -1505,7 +1505,7 @@ async function perguntarIA(p, porVoz) {
   const ctrl = new AbortController(), corta = setTimeout(() => ctrl.abort(), 90000);
   try {
     await authEnsure();
-    const r = await fetch(SUPA_URL + '/functions/v1/assistente', { method: 'POST', signal: ctrl.signal, headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ mensagens: hist, hoje: isoHoje() }) });
+    const r = await fetch(SUPA_URL + '/functions/v1/assistente', { method: 'POST', signal: ctrl.signal, headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ mensagens: hist, hoje: isoHoje(), eid: NUV.eid }) });
     if (!r.ok || !r.body) throw new Error(r.status === 403 ? 'sem_acesso' : r.status === 404 ? 'sem_funcao' : r.status === 503 ? 'chave_invalida' : 'http ' + r.status);
     const leitor = r.body.getReader(), dec = new TextDecoder();
     let buf = '';
@@ -1568,11 +1568,26 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   ${(DB.ajustes || []).length ? `<a href="#/ajustes"><span class="icm">${ic('clipboard-list')}</span><span class="grow">Pedidos de ajuste no app<small>${DB.ajustes.filter(x => x.status === 'novo').length} para o Eugênio</small></span>${ic('chevron-right')}</a>` : ''}
   ${MODO_REAL ? `<a href="#/copias"><span class="icm">${ic('shield-check')}</span><span class="grow">Cópias de segurança<small>Guardadas sozinhas neste aparelho</small></span>${ic('chevron-right')}</a>` : ''}
   </div>
+  ${MODO_REAL ? cartaoAcesso() : ''}
   ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
     <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.8 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.9 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
+function cartaoAcesso() {
+  const partes = [];
+  if ((NUV.linhas || []).length > 1) partes.push(`<div class="card" style="margin-top:16px"><div class="small muted">Consultório aberto</div>
+    <div class="abas" role="tablist" style="margin-top:8px">${NUV.linhas.map(id => `<button role="tab" aria-selected="${NUV.eid === id}" class="${NUV.eid === id ? 'on' : ''}" onclick="trocarConsultorio(${id})">${id === 1 ? 'Dra. Ingrid (real)' : 'Teste'}</button>`).join('')}</div></div>`);
+  if (souDona() && Array.isArray(NUV.acesso.suporte_emails)) {
+    const sup = NUV.acesso.suporte_emails;
+    partes.push(`<div class="card" style="margin-top:16px"><b>Acesso de suporte</b>
+      <p class="small muted" style="margin:4px 0 8px">Para quem cuida do app para você. A pessoa vê e mexe em tudo: clientes, prontuários, agenda e financeiro. Você tira quando quiser.</p>
+      ${sup.map(e => `<div class="item"><div class="grow"><b>${esc(e)}</b><div class="small muted">tem acesso de suporte</div></div><button class="btn mini ghost perigo" onclick="tirarSuporte('${esc(e)}')">Tirar acesso</button></div>`).join('')}
+      <label for="supE">Dar acesso para o e-mail</label><input id="supE" type="email" inputmode="email" autocomplete="off" placeholder="e-mail de quem cuida do app">
+      <button class="btn sec full" style="margin-top:10px" onclick="darSuporte()">Dar acesso de suporte</button></div>`);
+  } else if (NUV.eid === 1 && NUV.acesso && NUV.acesso.owner_email && !souDona()) partes.push(`<div class="aviso lil small" style="margin-top:16px">Você entra como <b>suporte</b>, com acesso dado pela Dra. Ingrid. Ela vê isso no app dela e pode tirar quando quiser.</div>`);
+  return partes.join('');
+}
 TELAS.adm = sub => {
   if (sub === 'tabela') {
     const ativos = tabAtiva(), arq = DB.tabela.filter(t => t.arquivado);
@@ -1851,7 +1866,7 @@ async function entrar() {
   btn.disabled = false; btn.textContent = txt;
 }
 async function depoisDeEntrar() {
-  NUV.dona = null; NUV.puxou = false;
+  NUV.dona = null; NUV.puxou = false; NUV.acesso = null;
   await nuvCiclo('login');
   if (NUV.dona) cofreGuardar('abertura');
   go('/');
@@ -1859,7 +1874,7 @@ async function depoisDeEntrar() {
 async function sair() {
   if (NUV.pendente) { try { await nuvEnviar(); } catch (e) { } }
   if (NUV.pendente && !confirm('Ainda tem mudança que não subiu para a nuvem (sem internet?). Sair mesmo assim? Ela fica guardada neste aparelho.')) return;
-  await authSignOut(); NUV.dona = null; NUV.puxou = false; modoEntrar = 'entrar'; go('/');
+  await authSignOut(); NUV.dona = null; NUV.puxou = false; NUV.acesso = null; NUV.linhas = null; modoEntrar = 'entrar'; go('/');
 }
 TELAS.naoDona = () => telaSemRail('Conta sem acesso', '', `<div class="card"><p>Você entrou como <b>${esc(authEmail() || '')}</b>, mas este consultório só abre para a conta da Dra. Ingrid.</p><button class="btn full" onclick="sair()">Sair e entrar com outra conta</button></div>`);
 TELAS['nova-senha'] = () => telaSemRail('Senha nova', 'Escolha a senha que vai usar daqui para a frente', `<form class="card" onsubmit="event.preventDefault();trocarSenha()">

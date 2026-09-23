@@ -16,6 +16,7 @@
 /* ?demo no endereço = só dados de exemplo, sem tocar no banco dela */
 const MODO_REAL = !!SUPA_URL && !/[?&]demo\b/.test(location.search);
 const NUV_K = 'vetig_nuvem_v1';
+const CONSULT_K = 'vetig_consultorio';   // qual consultório abrir, para quem vê mais de um
 const NUV = { ultimo: null, pendente: false, puxou: false, status: 'ok', dona: null, conflito: false, eid: null };   // eid: 1 = consultório da Ingrid, 2 = consultório de teste
 
 function nuvLer() { try { const s = JSON.parse(localStorage.getItem(NUV_K)) || {}; NUV.ultimo = s.ultimo || null; NUV.pendente = !!s.pendente; NUV.pubHash = s.pubHash || ''; NUV.eid = s.eid || null; } catch (e) { } }
@@ -38,12 +39,17 @@ function nuvPeso(d) { return ['tutores', 'animais', 'doses', 'agenda', 'atendime
 
 /* ---------- puxar ---------- */
 async function nuvPuxar() {
-  // O banco só mostra a linha de quem entrou: 1 para a Ingrid, 2 para o consultório de teste.
-  const r = await rest('estado?select=id,data,updated_at&order=id&limit=1');
+  // O banco só mostra as linhas de quem entrou: 1 = consultório da Ingrid (ela e o suporte que ela liberou),
+  // 2 = consultório de teste. Quem vê as duas escolhe em Mais qual abrir.
+  const r = await rest('estado?select=id,data,updated_at&order=id');
   if (!r.ok) throw new Error('estado ' + r.status);
-  const [linha] = await r.json();
-  if (!linha) { NUV.dona = false; return 'naoDona'; }   // as regras do banco esconderam: não é a dona
+  const linhas = await r.json();
+  if (!linhas.length) { NUV.dona = false; return 'naoDona'; }   // as regras do banco esconderam: não é a dona
+  NUV.linhas = linhas.map(l => l.id);
+  let quero = null; try { quero = +localStorage.getItem(CONSULT_K) || null; } catch (e) { }
+  const linha = linhas.find(l => l.id === quero) || linhas[0];
   NUV.dona = true;
+  if (!NUV.acesso) await nuvAcesso();
   if (NUV.eid && NUV.eid !== linha.id) {                // trocou de conta neste aparelho: o que está aqui é da outra conta, não sobe
     NUV.pendente = false; NUV.puxou = false; NUV.ultimo = null; NUV.pubHash = '';
     if (linha.id === 1) DB = seedReal();
@@ -175,10 +181,48 @@ function nuvStatus(s) {
   NUV.status = s;
   const f = document.getElementById('faixa');
   if (!f || !MODO_REAL) return;
-  const teste = NUV.eid === 2 && isLoggedIn() ? 'Consultório de TESTE — clientes de exemplo. Nada daqui chega à Dra. Ingrid.' : '';
+  const teste = !isLoggedIn() ? '' : NUV.eid === 2 ? 'Consultório de TESTE — clientes de exemplo. Nada daqui chega à Dra. Ingrid.'
+    : NUV.eid === 1 && NUV.acesso && NUV.acesso.owner_email && !souDona() ? 'Modo suporte — consultório REAL da Dra. Ingrid. O que você mudar vale para ela.' : '';
   const txt = { offline: 'Sem internet — tudo fica guardado neste aparelho e sobe quando a conexão voltar.', erro: 'Não consegui falar com a nuvem agora. Tento de novo sozinho.', naoDona: '' }[s] || teste;
   f.style.display = txt ? 'flex' : 'none';
   if (txt) f.innerHTML = `<span>${txt}</span>`;
+}
+/* ---------- quem tem acesso (a dona dá e tira o suporte) ---------- */
+function emailLogado() {
+  try { const t = authToken(); if (t && t.split('.').length === 3) { const p = JSON.parse(decodeURIComponent(escape(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))))); if (p.email) return p.email; } } catch (e) { }
+  return authEmail() || '';
+}
+function souDona() { return !!(NUV.acesso && NUV.acesso.owner_email && emailLogado().toLowerCase() === NUV.acesso.owner_email.toLowerCase()); }
+async function nuvAcesso() {
+  try {
+    let r = await rest('app_config?select=owner_email,suporte_emails');
+    if (!r.ok) r = await rest('app_config?select=owner_email');   // banco ainda sem a coluna de suporte
+    const [c] = r.ok ? await r.json() : [];
+    NUV.acesso = c || {};
+  } catch (e) { NUV.acesso = null; }
+}
+async function darSuporte() {
+  const e = (($('#supE') || {}).value || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return toast('Confira o e-mail');
+  if (!confirm(`Dar acesso de suporte para ${e}?\n\nA pessoa vai ver e mexer em tudo do consultório: clientes, prontuários, agenda e financeiro. Você pode tirar quando quiser.`)) return;
+  const r = await rest('rpc/adicionar_suporte', { method: 'POST', body: JSON.stringify({ email: e }) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); return toast('Não deu: ' + (j.message || 'tente de novo')); }
+  await nuvAcesso(); route({ manterScroll: true }); toast('Acesso dado para ' + e);
+}
+async function tirarSuporte(e) {
+  if (!confirm(`Tirar o acesso de suporte de ${e}?`)) return;
+  const r = await rest('rpc/remover_suporte', { method: 'POST', body: JSON.stringify({ email: e }) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); return toast('Não deu: ' + (j.message || 'tente de novo')); }
+  await nuvAcesso(); route({ manterScroll: true }); toast('Acesso retirado');
+}
+async function trocarConsultorio(id) {
+  if (id === NUV.eid) return;
+  if (NUV.pendente) { try { await nuvEnviar(); } catch (e) { } }
+  if (NUV.pendente) return toast('Ainda tem mudança subindo para a nuvem. Tente de novo em instantes.');
+  try { localStorage.setItem(CONSULT_K, String(id)); } catch (e) { }
+  for (let i = 0; i < 25 && nuvRodando; i++) await new Promise(r => setTimeout(r, 200));
+  await nuvCiclo('troca');
+  go('/'); toast(id === 1 ? 'Consultório real da Dra. Ingrid' : 'Consultório de teste');
 }
 function nuvIniciar() {
   if (!MODO_REAL) return;
