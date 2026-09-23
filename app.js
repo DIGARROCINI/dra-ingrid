@@ -1414,21 +1414,37 @@ TELAS.entrar = () => {
     </div>
     <p class="tiny muted" style="text-align:center;margin-top:16px">É o tutor? <a href="#/t">Marcar uma visita</a></p>`);
 };
+/* Mensagens do Supabase chegam em inglês: traduz as que ela pode ver. */
+function erroPT(e) {
+  const m = String(e || '');
+  let x;
+  if ((x = m.match(/after (\d+) seconds?/i))) return `Espere ${x[1]} segundos e tente de novo. Se já tinha apertado antes, veja se chegou o e-mail de confirmação no Gmail.`;
+  if (/already (been )?registered|already exists/i.test(m)) return 'Este e-mail já tem senha. Toque em "Já tenho senha — entrar".';
+  if (/invalid login|invalid credentials/i.test(m)) return 'E-mail ou senha não conferem.';
+  if (/not confirmed/i.test(m)) return 'Falta confirmar o e-mail: abra o link que mandamos para o Gmail.';
+  if (/rate limit|too many/i.test(m)) return 'Muitos pedidos seguidos. Espere alguns minutos e tente de novo.';
+  if (/password.*(at least|characters|short)|weak/i.test(m)) return 'A senha precisa ter pelo menos 8 caracteres, misturando letras e números.';
+  if (/same.*password|different from the old/i.test(m)) return 'A senha nova precisa ser diferente da antiga.';
+  if (/signups? not allowed|signup is disabled/i.test(m)) return 'Não dá para criar conta nova aqui. Se você é a Dra. Ingrid, use "Já tenho senha — entrar".';
+  if (/invalid.*email|email.*invalid/i.test(m)) return 'Confira o e-mail digitado.';
+  if (/expired|invalid.*(token|link)/i.test(m)) return 'O link venceu. Peça outro em "Esqueci a senha".';
+  return m ? 'Não deu: ' + m : 'Não deu. Tente de novo.';
+}
 async function entrar() {
   const email = $('#enEmail').value.trim(), senha = $('#enSenha') ? $('#enSenha').value : '', btn = $('#enBtn'), msg = $('#enMsg');
   btn.disabled = true; const txt = btn.textContent; btn.textContent = 'Um momento…'; msg.textContent = '';
   try {
     if (modoEntrar === 'esqueci') {
       const r = await authReset(email);
-      msg.textContent = r.ok ? 'Pronto! Abra o e-mail e toque no link para criar uma senha nova.' : 'Não consegui mandar: ' + (r.error || 'tente de novo');
+      msg.textContent = r.ok ? 'Pronto! Abra o e-mail e toque no link para criar uma senha nova.' : erroPT(r.error);
     } else if (modoEntrar === 'criar') {
       const r = await authSignUp(email, senha);
-      if (!r.ok) msg.textContent = 'Não deu: ' + (r.error || 'tente de novo');
-      else if (r.needsConfirm) msg.textContent = 'Quase lá! Mandamos um e-mail de confirmação. Abra e toque no link — ele volta para cá já conectada.';
+      if (!r.ok) msg.textContent = erroPT(r.error);
+      else if (r.needsConfirm) { msg.textContent = 'Quase lá! Mandamos um e-mail de confirmação para o Gmail. Abra e toque no link — ele volta para cá já conectada.'; btn.textContent = 'E-mail enviado'; return; }   // não reabre o botão: apertar de novo só dá erro
       else { await depoisDeEntrar(); return; }
     } else {
       const r = await authSignIn(email, senha);
-      if (!r.ok) msg.textContent = /invalid/i.test(r.error || '') ? 'E-mail ou senha não conferem.' : /confirm/i.test(r.error || '') ? 'Falta confirmar o e-mail: abra o link que mandamos.' : 'Não deu: ' + (r.error || 'sem internet?');
+      if (!r.ok) msg.textContent = erroPT(r.error);
       else { await depoisDeEntrar(); return; }
     }
   } catch (e) { msg.textContent = 'Sem resposta da internet. Tente de novo.'; }
@@ -1453,7 +1469,7 @@ async function trocarSenha() {
   const b = $('#nsBtn'); b.disabled = true;
   const r = await authSetPassword($('#nsSenha').value);
   if (r.ok) { toast('Senha salva'); history.replaceState(null, '', location.pathname); await depoisDeEntrar(); }
-  else { $('#nsMsg').textContent = 'Não deu: ' + (r.error || 'tente de novo'); b.disabled = false; }
+  else { $('#nsMsg').textContent = erroPT(r.error); b.disabled = false; }
 }
 
 /* ---- Pedidos de ajuste (anotados pelo assistente, para o Eugênio) ---- */
