@@ -151,7 +151,7 @@ function route(opts = {}) {
       ? '<span>Demonstração · você está vendo o app como <b>tutor</b></span><button onclick="go(\'/\')">Voltar à Ingrid</button>'
       : '<span>Demonstração · dados de exemplo</span><button onclick="go(\'/t\')">Ver como tutor</button>';
   } else nuvStatus(NUV.status);
-  const aba = ({ '': 'hoje', agenda: 'agenda', clientes: 'clientes', tutor: 'clientes', animal: 'clientes', atender: 'clientes', receita: 'clientes', assistente: 'ia' }[p[0] || ''] || 'mais');
+  const aba = ({ '': 'hoje', avisos: 'hoje', agenda: 'agenda', clientes: 'clientes', tutor: 'clientes', animal: 'clientes', atender: 'clientes', receita: 'clientes', assistente: 'ia' }[p[0] || ''] || 'mais');
   $('#rail').innerHTML = '<div class="rail-marca"><img src="simbolo.png" alt="">Dra. Ingrid</div>' +
     [['hoje', '/', 'Hoje', 'house'], ['agenda', '/agenda', 'Agenda', 'calendar'], ['clientes', '/clientes', 'Clientes', 'users'], ['ia', '/assistente', 'Assistente', 'sparkles'], ['mais', '/mais', 'Mais', 'ellipsis']]
       .map(([k, href, t, i]) => `<a href="#${href}" class="${aba === k ? 'on' : ''}" ${aba === k ? 'aria-current="page"' : ''}>${ic(i)}${t}</a>`).join('');
@@ -176,7 +176,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharFolha(
 /* barra de topo compacta: título, voltar e ações */
 function barra(titulo, { voltar, sub, acoes = '' } = {}) {
   return `<header class="barra-app"><div class="in">${voltar ? `<a class="icbtn" href="#${voltar}" aria-label="Voltar">${ic('chevron-left', 'lg')}</a>` : '<img src="simbolo.png" alt="" style="height:26px;margin:0 6px 0 8px">'}
-    <h1>${titulo}${sub ? `<span class="sub">${sub}</span>` : ''}</h1>${acoes}</div></header>`;
+    <h1>${titulo}${sub ? `<span class="sub">${sub}</span>` : ''}</h1>${acoes}${document.body.classList.contains('tutor') ? '' : sinoBtn()}</div></header>`;
 }
 const acaoBtn = (icone, rotulo, onclick) => `<button class="icbtn" aria-label="${rotulo}" title="${rotulo}" onclick="${onclick}">${ic(icone)}</button>`;
 
@@ -289,7 +289,7 @@ TELAS.hoje = () => {
       <a class="btn" href="#/atender/${a.id}/${px.id}">${ic('stethoscope', 'sm')} Atender</a></div></div>`;
   } else cardPx = `<div class="proxima"><div class="quando">Sem mais visitas hoje</div><p class="small muted" style="margin:6px 0 0">Aproveite para responder os pedidos e avisar os tutores abaixo.</p></div>`;
 
-  return `<section class="hero"><div class="in"><div class="marca"><img src="simbolo.png" alt=""><b>Dra. Ingrid Garrocini</b><span>CRMV ${esc(DB.cfg.crmv)}</span></div>
+  return `<section class="hero"><div class="in"><div class="marca"><img src="simbolo.png" alt=""><b>Dra. Ingrid Garrocini</b><span>CRMV ${esc(DB.cfg.crmv)}</span>${sinoBtn()}</div>
     <h1>${saud}, Ingrid</h1><div class="sub">${SEM_LONGO[diaSemN(hoje)]}, ${d} de ${MESES[m - 1]} · ${pendentes.length ? pendentes.length + (pendentes.length === 1 ? ' visita pela frente' : ' visitas pela frente') : 'agenda do dia concluída'}</div>
     ${cardPx}</div></section><main>
   <div class="kpis" role="list">
@@ -315,7 +315,7 @@ TELAS.hoje = () => {
       <div class="tiny muted">${ic('map-pin', 'sm')} ${esc(t.bairro)}</div></div>
       ${g.status === 'feito' ? `<span class="tag verde">${ic('check', 'sm')} feito</span>` : `<a class="btn mini" href="#/atender/${a.id}/${g.id}">Atender</a>`}</div>`; }).join('') : '<p class="muted" style="margin:0">Nenhuma visita hoje.</p>'}</div>
 
-  <div class="secao"><h2>Avisar hoje${avisos.length ? `<span class="cont">${avisos.length}</span>` : ''}</h2></div>
+  <div class="secao"><h2>Avisar hoje${avisos.length ? `<span class="cont">${avisos.length}</span>` : ''}</h2><a href="#/avisos" class="small">Todos os avisos</a></div>
   <div class="card">${avisos.length ? avisos.map(x => `
     <div class="item">${avatar(x.a)}
       <div class="grow"><b>${esc(x.a.nome)}</b> <span class="muted small">· ${esc(x.t.nome)}</span><div class="small"><span class="tag ${x.cls}">${x.tipo}</span> ${esc(x.titulo)}</div></div>
@@ -998,7 +998,7 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
     <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.3 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.4 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 TELAS.adm = sub => {
   if (sub === 'tabela') {
@@ -1144,6 +1144,68 @@ function enviarAvaliacao() {
   window.scrollTo(0, 0);
 }
 
+
+
+/* ================= CENTRAL DE AVISOS ================= */
+/* Junta tudo o que pede atenção num lugar só. Cada aviso tem uma chave estável:
+   "lembrar amanhã" e "dispensar" valem só para aquele aviso. */
+const GRUPOS = [['agora', 'Agir agora', 'coral'], ['hoje', 'Hoje', 'ambar'], ['espera', 'Pode esperar', 'azul'], ['sistema', 'Sistema', 'cinza']];
+function notifEstado() { return DB.notif || (DB.notif = {}); }
+function centralAvisos() {
+  const L = [];
+  // agir agora: pedidos de horário e conflito entre aparelhos
+  DB.agenda.filter(g => g.status === 'pedido').sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora)).forEach(g => {
+    const a = animal(g.animalId), t = a && tutor(a.tutorId); if (!a || !t) return;
+    L.push({ k: 'ped' + g.id, grupo: 'agora', icone: 'calendar', titulo: `Pedido de horário · ${a.nome}`, sub: `${t.nome} · ${diaSem(g.data)} ${dataCurta(g.data)} às ${g.hora} · ${servicosTxt(g)}`, rotulo: 'Confirmar', acao: `confirmar('${g.id}')`, extra: `recusar('${g.id}')`, extraRot: 'Outro horário' });
+  });
+  if (typeof NUV !== 'undefined' && NUV.conflito) L.push({ k: 'conflito', grupo: 'agora', icone: 'triangle-alert', titulo: 'Mudou em dois aparelhos', sub: 'Escolha qual versão fica — a outra vai para as cópias.', rotulo: 'Escolher', acao: 'nuvConflito(window.__nuvRemoto)', fixo: true });
+  // hoje: tutores para avisar (vacina, check-up, avaliação)
+  avisosHoje().forEach(x => L.push({ k: 'av' + x.k, grupo: 'hoje', icone: x.tipo === 'Vacina' ? 'syringe' : x.tipo === 'Check-up' ? 'clipboard-list' : 'star', titulo: `${x.tipo} · ${x.a.nome}`, sub: `${x.t.nome} · ${x.titulo}`, rotulo: 'Avisar', acao: `avisar('${x.k}')`, wa: true }));
+  // pode esperar: dinheiro em aberto há mais de 7 dias, estoque
+  DB.orcamentos.filter(o => o.status !== 'pago' && diasAte(o.data) <= -7).forEach(o => {
+    const t = tutor(o.tutorId), a = animal(o.animalId); if (!t) return;
+    const msg = `Olá, ${t.nome.split(' ')[0]}! Aqui é a Dra. Ingrid 🐾 Passando para lembrar do valor em aberto da visita de ${dataCurta(o.data)}${a ? ' (' + a.nome + ')' : ''}: ${brl(totalItens(o.itens))}. Pode ser por Pix${DB.cfg.pix ? ' (chave ' + DB.cfg.pix + ')' : ''} ou cartão. Obrigada!`;
+    L.push({ k: 'orc' + o.id, grupo: 'espera', icone: 'wallet', titulo: `${brl(totalItens(o.itens))} em aberto · ${t.nome}`, sub: `Visita de ${dataCurta(o.data)} · ${quando(o.data)}`, rotulo: 'Lembrar', link: waLink(msg), wa: true, extra: `receber('${o.id}')`, extraRot: 'Recebi' });
+  });
+  const repor = DB.estoque.filter(e => e.qtd <= e.min);
+  if (repor.length) L.push({ k: 'repor' + repor.map(e => e.id + e.qtd).join(''), grupo: 'espera', icone: 'package', titulo: `${repor.length} ${repor.length === 1 ? 'item para repor' : 'itens para repor'}`, sub: repor.map(e => `${e.nome} (${e.qtd})`).join(', '), rotulo: 'Lista de compras', acao: 'listaCompras()' });
+  DB.estoque.filter(e => e.validade && diasAte(e.validade) <= 30).forEach(e => L.push({ k: 'val' + e.id + e.validade, grupo: 'espera', icone: 'clock', titulo: `${e.nome} ${diasAte(e.validade) < 0 ? 'venceu' : 'vence ' + quando(e.validade)}`, sub: `Lote ${e.lote || '—'} · ${e.qtd} no estoque`, rotulo: 'Ver estoque', link: '#/estoque' }));
+  // sistema
+  if (typeof NUV !== 'undefined' && MODO_REAL && (NUV.status === 'offline' || NUV.status === 'erro')) L.push({ k: 'nuvem', grupo: 'sistema', icone: 'triangle-alert', titulo: NUV.status === 'offline' ? 'Sem internet' : 'A nuvem não respondeu', sub: 'Tudo fica guardado neste aparelho e sobe sozinho quando voltar.', rotulo: 'Tentar agora', acao: "nuvCiclo('mao')", fixo: true });
+  if ($('#novaver') && $('#novaver').classList.contains('on')) L.push({ k: 'versao', grupo: 'sistema', icone: 'sparkles', titulo: 'Versão nova do app', sub: 'Atualize quando terminar o que está fazendo.', rotulo: 'Atualizar', acao: 'location.reload()', fixo: true });
+  const est = notifEstado(), hoje = isoHoje();
+  return L.filter(x => x.fixo || !(est[x.k] && (est[x.k].dispensado || (est[x.k].adiado && est[x.k].adiado > hoje))));
+}
+function naoVistos() { const est = notifEstado(); return centralAvisos().filter(x => (x.grupo === 'agora' || x.grupo === 'hoje') && !(est[x.k] && est[x.k].visto)).length; }
+function sinoBtn() {
+  const n = naoVistos();
+  return `<a class="icbtn sino" href="#/avisos" aria-label="Avisos${n ? ': ' + n + ' novos' : ''}" title="Avisos">${ic('bell')}${n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : ''}</a>`;
+}
+function notifMarcar(k, campo) {
+  const est = notifEstado();
+  comDesfazer(campo === 'adiado' ? 'Volta amanhã' : 'Aviso dispensado', () => { est[k] = { ...(est[k] || {}), [campo]: campo === 'adiado' ? isoMais(isoHoje(), 1) : isoHoje() }; });
+  route({ manterScroll: true });
+}
+TELAS.avisos = () => {
+  const itens = centralAvisos();
+  const html = barra('Avisos', { voltar: '/', sub: itens.length ? `${itens.length} ${itens.length === 1 ? 'coisa pede' : 'coisas pedem'} atenção` : 'Tudo em dia' }) + `<main>
+  ${itens.length ? GRUPOS.map(([g, nome, cor]) => { const doGrupo = itens.filter(x => x.grupo === g); return doGrupo.length ? `<div class="secao"><h2>${nome}<span class="cont" style="background:var(--${cor === 'coral' ? 'coral-f' : cor === 'ambar' ? 'ambar-f' : cor === 'azul' ? 'azul-f' : 'tinta-2'})">${doGrupo.length}</span></h2></div>
+    <div class="card">${doGrupo.map(x => { const visto = notifEstado()[x.k] && notifEstado()[x.k].visto; return `<div class="item aviso-item${visto ? ' visto' : ''}"><div class="ava" style="background:var(--${cor === 'coral' ? 'coral-2' : cor === 'ambar' ? 'ambar-2' : cor === 'azul' ? 'azul-2' : 'lil-3'});color:var(--${cor === 'coral' ? 'coral-f' : cor === 'ambar' ? 'ambar-f' : cor === 'azul' ? 'azul-f' : 'tinta-2'})">${ic(x.icone)}</div>
+      <div class="grow"><b>${esc(x.titulo)}</b><div class="small muted">${esc(x.sub)}</div>
+      <div class="row wrap" style="margin-top:8px;gap:6px">${x.link ? `<a class="btn mini ${x.wa ? 'wa' : ''}" href="${x.link}" ${x.link.startsWith('#') ? '' : 'target="_blank" rel="noopener"'}>${x.wa ? ic('message-circle', 'sm') + ' ' : ''}${x.rotulo}</a>` : `<button class="btn mini ${x.wa ? 'wa' : ''}" onclick="${x.acao}">${x.wa ? ic('message-circle', 'sm') + ' ' : ''}${x.rotulo}</button>`}
+        ${x.extra ? `<button class="btn mini ghost" onclick="${x.extra}">${x.extraRot}</button>` : ''}
+        ${x.fixo ? '' : `<button class="icbtn" style="width:36px;height:36px" aria-label="Lembrar amanhã" title="Lembrar amanhã" onclick="notifMarcar('${x.k}','adiado')">${ic('clock', 'sm')}</button><button class="icbtn" style="width:36px;height:36px" aria-label="Dispensar" title="Dispensar" onclick="notifMarcar('${x.k}','dispensado')">${ic('x', 'sm')}</button>`}</div></div></div>`; }).join('')}</div>` : ''; }).join('')
+    : `<div class="card" style="text-align:center;padding:28px"><div class="ava xl" style="margin:0 auto;background:var(--verde-2);color:var(--verde)">${ic('check')}</div><h2 style="margin-top:12px">Tudo em dia</h2><p class="muted small">Nenhum pedido, tutor para avisar ou estoque para repor agora.</p></div>`}
+  <p class="tiny muted" style="text-align:center;margin-top:14px">${ic('clock', 'sm')} lembrar amanhã · ${ic('x', 'sm')} dispensar este aviso. Os resolvidos saem sozinhos.</p></main>`;
+  return html;
+};
+/* depois de ver a Central, os avisos contam como vistos (o número do sino zera) */
+TELAS.avisos.depois = () => {
+  const est = notifEstado(); let mudou = false;
+  centralAvisos().forEach(x => { if (!(est[x.k] && est[x.k].visto)) { est[x.k] = { ...(est[x.k] || {}), visto: isoHoje() }; mudou = true; } });
+  if (mudou) salvar();
+  document.querySelectorAll('.sino').forEach(b => { b.setAttribute('aria-label', 'Avisos'); const n = b.querySelector('.badge'); if (n) n.remove(); });
+};
 
 /* ================= LOGIN (modo real) ================= */
 let modoEntrar = 'entrar';
