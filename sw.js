@@ -1,6 +1,6 @@
 /* Service worker — fórmula app-um-so (peça 2: cache:'reload' ao buscar o app). */
-const VER = 'vetig-0.9.0';
-const ARQ = ['./', 'index.html', 'app.js', 'dados.js', 'icones.js', 'config.js', 'auth.js', 'nuvem.js', 'simbolo.png', 'icon-192.png', 'manifest.webmanifest'];
+const VER = 'vetig-0.10.0';
+const ARQ = ['./', 'index.html', 'app.js', 'dados.js', 'icones.js', 'config.js', 'auth.js', 'nuvem.js', 'arquivos.js', 'simbolo.png', 'icon-192.png', 'manifest.webmanifest'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VER).then(c => Promise.all(ARQ.map(u => fetch(u, { cache: 'reload' }).then(r => c.put(u, r))))).then(() => self.skipWaiting()));
 });

@@ -238,6 +238,15 @@ body.tutor .cta-fixa{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bot
 .toca:focus-visible{outline:2px solid var(--lil);outline-offset:2px}
 .btn.perigo{color:var(--coral-f)}
 .editar{display:inline-flex;align-items:center;gap:4px}
+.ava.foto{padding:0;overflow:hidden}
+.ava.foto img{width:100%;height:100%;object-fit:cover;display:block}
+.foto-perfil{position:relative;background:none;border:0;padding:0;cursor:pointer;flex:none;border-radius:50%}
+.foto-perfil .foto-lapis{position:absolute;right:-2px;bottom:-2px;width:26px;height:26px;border-radius:50%;background:var(--tinta);color:#fff;display:grid;place-items:center;border:2px solid #fff}
+.galeria{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px;margin-top:12px}
+.galeria:empty{display:none}
+.anexo{border:1px solid var(--linha);border-radius:12px;overflow:hidden;background:#fff;padding:0;text-align:left;cursor:pointer;font:inherit;color:inherit;display:flex;flex-direction:column}
+.anexo .miniatura{width:100%;aspect-ratio:1;object-fit:cover;display:grid;place-items:center;align-content:center;gap:2px;background:var(--lil-3);color:var(--lil-f);font-size:12px}
+.anexo .leg{display:block;padding:6px 8px;font-size:12px;line-height:1.3}
 .acao.feita{border-color:var(--verde-2);opacity:.85}
 .sugs{display:flex;gap:6px;flex-wrap:wrap}
 .sugs button{border:1px solid var(--linha);background:#fff;border-radius:99px;padding:7px 12px;font:500 13px Figtree;cursor:pointer;color:var(--lil-f)}
@@ -306,6 +315,7 @@ body.tutor .cta-fixa{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bot
 <script src="config.js"></script>
 <script src="auth.js"></script>
 <script src="nuvem.js"></script>
+<script src="arquivos.js"></script>
 <script src="app.js"></script>
 <script>
 /* Atualização do código (fórmula app-um-so, peças 1–5) */

@@ -163,8 +163,10 @@ async function nuvCiclo(motivo = '') {
     if (res === 'conflito') return;
     const daIngrid = NUV.eid === 1;                     // teste não importa pedidos nem mexe na vitrine dos tutores
     const chegaram = daIngrid ? await nuvPedidos() : 0;
+    const arquivos = typeof verificarEnvios === 'function' ? await verificarEnvios(motivo === 'abertura' || motivo === 'voltou' || motivo === 'login') : 0;   // fotos/exames que tutores mandaram pelo link
     if (NUV.pendente) await nuvEnviar();
     if (daIngrid) await nuvVitrine();
+    if (typeof arqAposSincronia === 'function') arqAposSincronia();
     nuvStatus('ok');
     if (JSON.stringify(DB) !== antes && !isBusyEditing()) route({ manterScroll: true });
     if (chegaram) toast(chegaram === 1 ? 'Chegou 1 pedido de horário' : `Chegaram ${chegaram} pedidos de horário`);

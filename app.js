@@ -80,7 +80,9 @@ const tutor = id => DB.tutores.find(t => t.id === id);
 const animal = id => DB.animais.find(a => a.id === id);
 const tab = id => DB.tabela.find(t => t.id === id);
 const ehGato = a => a.especie === 'Gato';
-const avatar = (a, cls = '') => `<div class="ava ${ehGato(a) ? 'gato' : ''} ${cls}" aria-hidden="true">${ic(ehGato(a) ? 'cat' : 'dog')}</div>`;
+const avatar = (a, cls = '') => a && a.foto && arqLink(a.foto)
+  ? `<div class="ava foto ${cls}" aria-hidden="true"><img src="${arqLink(a.foto)}" alt=""></div>`
+  : `<div class="ava ${ehGato(a) ? 'gato' : ''} ${cls}" aria-hidden="true">${ic(ehGato(a) ? 'cat' : 'dog')}</div>`;
 const avatarTutor = t => { const an = DB.animais.filter(a => a.tutorId === t.id); return `<div class="ava dupla" aria-hidden="true">${an.slice(0, 3).map(a => ic(ehGato(a) ? 'cat' : 'dog')).join('') || ic('users')}</div>`; };
 const pesoAtual = a => a.pesos.length ? a.pesos[a.pesos.length - 1].kg : null;
 const precoItem = i => (typeof i.preco === 'number' && !isNaN(i.preco)) ? i.preco : (tab(i.tab)?.preco || 0);   // preço ajustado na cobrança vale mais que o da tabela
@@ -263,10 +265,10 @@ function ligarCampos(raiz, campos, alvo, aoMudar) {
   };
   raiz.addEventListener('input', mudou); raiz.addEventListener('change', mudou);
 }
-function abrirFicha(titulo, alvo, campos, { rodape = '', depois = null, sub = '' } = {}) {
+function abrirFicha(titulo, alvo, campos, { rodape = '', depois = null, sub = '', topo = '' } = {}) {
   const obj = alvo(); if (!obj) return toast('Não achei esse registro');
   abrirFolha(`<h2>${titulo}</h2>${sub ? `<p class="small muted" style="margin:0 0 6px">${sub}</p>` : ''}
-    <div class="salvo small" id="fichaOk" aria-live="polite">${ic('check', 'sm')} Salva sozinha enquanto você digita</div>
+    ${topo}<div class="salvo small" id="fichaOk" aria-live="polite">${ic('check', 'sm')} Salva sozinha enquanto você digita</div>
     <div class="campos-grade" id="ficha">${campos.map(c => campoHTML(c, c.sep ? '' : pegar(obj, c.k), 'fx_')).join('')}</div>
     <button class="btn full" style="margin-top:16px" onclick="fecharFolha()">${ic('check')} Pronto</button>${rodape}`);
   FICHA = { depois, t: null };
@@ -435,6 +437,127 @@ function editarRemedio(i) {
         ['Cão', 'Gato'].forEach(esp => { const d = f.doses[esp]; if (!d) return; if (!(d.min > 0)) { delete f.doses[esp]; return; } if (!(d.max >= d.min)) d.max = d.min; if (!d.duracao) d.duracao = '—'; });
       },
        rodape: botaoApagar('Tirar da lista', `apagarComDesfazer('Medicamento retirado',()=>{DB.formulario.splice(${i},1)},'Tirar este medicamento da lista? O assistente deixa de dar a dose dele.')`) });
+}
+
+/* ---- Fotos e arquivos: perfil do animal, lesão, exame, documento — da Ingrid e do tutor ---- */
+const TIPOS_ANEXO = ['Foto', 'Lesão', 'Exame', 'Documento', 'Receita de fora'];
+const pastaArq = () => MODO_REAL ? 'c' + (NUV.eid || 1) : 'demo';
+const anexosDe = aid => (DB.anexos || []).filter(x => x.animalId === aid).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+async function anexar(animalId, { camera = false, tipo = 'Foto', depois = null } = {}) {
+  const arqs = await escolherArquivos({ camera });
+  if (!arqs.length) return;
+  toast(arqs.length > 1 ? `Enviando ${arqs.length} arquivos…` : 'Enviando…');
+  const novos = [];
+  for (const f of arqs) {
+    try {
+      const b = await comprimir(f), mime = b.type || f.type || '', id = uid('arq');
+      const caminho = `${pastaArq()}/a/${animalId}/${id}.${extDe(mime)}`;
+      await arqEnviar(caminho, b);
+      const x = { id, animalId, caminho, mime, nome: f.name || '', tamanho: b.size, tipo: mime === 'application/pdf' ? 'Exame' : tipo, nota: '', data: isoHoje(), por: 'ingrid' };
+      (DB.anexos = DB.anexos || []).push(x); novos.push(x);
+    } catch (e) { toast('Não consegui enviar ' + (f.name || 'o arquivo') + ': ' + (e.message || 'sem internet?')); }
+  }
+  if (!novos.length) return;
+  salvar(); await arqAssinar(novos.map(x => x.caminho));
+  if (depois) return depois(novos);
+  abaAnimal = 'arquivos'; route({ manterScroll: true });
+  if (novos.length === 1) editarAnexo(novos[0].id); else toast(`${novos.length} arquivos guardados`);
+}
+function menuFotoPerfil(id) {
+  const a = animal(id); if (!a) return;
+  abrirFolha(`<h2>Foto de ${esc(a.nome)}</h2>
+    ${a.foto && arqLink(a.foto) ? `<img src="${arqLink(a.foto)}" alt="" style="width:160px;height:160px;border-radius:50%;object-fit:cover;display:block;margin:6px auto 14px">` : ''}
+    <div class="stack"><button class="btn full" onclick="fotoPerfil('${id}',true)">${ic('camera')} Tirar foto agora</button>
+    <button class="btn sec full" onclick="fotoPerfil('${id}',false)">${ic('image')} Escolher da galeria</button>
+    ${a.foto ? `<button class="btn ghost full perigo" onclick="tirarFotoPerfil('${id}')">${ic('trash-2')} Tirar a foto do perfil</button>` : ''}</div>`);
+}
+async function fotoPerfil(id, camera) {
+  const [f] = await escolherArquivos({ camera, multiplo: false, aceitar: 'image/*' }); if (!f) return;
+  toast('Enviando a foto…');
+  try {
+    const b = await comprimir(f, 900), caminho = `${pastaArq()}/a/${id}/perfil-${uid('p')}.${extDe(b.type || f.type)}`;
+    await arqEnviar(caminho, b);
+    const a = animal(id), antiga = a.foto;
+    a.foto = caminho; salvar(); await arqAssinar([caminho]);
+    fecharFolha(); route({ manterScroll: true }); toast('Foto do perfil trocada');
+    if (antiga) arqApagar(antiga).catch(() => { });
+  } catch (e) { toast('Não consegui enviar a foto: ' + (e.message || 'sem internet?')); }
+}
+function tirarFotoPerfil(id) {
+  const a = animal(id), antiga = a.foto; if (!antiga) return;
+  fecharFolha(); comDesfazer('Foto do perfil tirada', () => { delete animal(id).foto; });
+  setTimeout(() => { const x = animal(id); if (!x || x.foto !== antiga) arqApagar(antiga).catch(() => { }); }, 9000);   // só apaga de vez se ela não desfez
+  route({ manterScroll: true });
+}
+const cartaoAnexo = x => `<button type="button" class="anexo" onclick="editarAnexo('${x.id}')" aria-label="${esc(x.tipo)} de ${dataCurta(x.data)}">
+  ${ehPdf(x) ? `<span class="miniatura">${ic('file-text')}<b>PDF</b></span>` : arqLink(x.caminho) ? `<img class="miniatura" src="${arqLink(x.caminho)}" alt="" loading="lazy">` : `<span class="miniatura">${ic('image')}</span>`}
+  <span class="leg"><b>${esc(x.tipo)}</b>${x.novo ? ' <span class="tag coral">novo</span>' : ''}<br>${dataCurta(x.data)}${x.por === 'tutor' ? ' · do tutor' : ''}</span></button>`;
+async function editarAnexo(xid) {
+  const x = (DB.anexos || []).find(y => y.id === xid); if (!x) return;
+  if (x.novo) { delete x.novo; salvar(); }
+  await arqAssinar([x.caminho]);
+  const link = arqLink(x.caminho);
+  const topo = !link ? '<p class="small muted">Sem internet para mostrar o arquivo agora.</p>'
+    : ehPdf(x) ? `<a class="btn sec full" style="margin-bottom:10px" href="${link}" target="_blank" rel="noopener">${ic('file-text')} Abrir o PDF</a>`
+    : `<a href="${link}" target="_blank" rel="noopener" aria-label="Abrir a foto inteira"><img src="${link}" alt="" style="width:100%;max-height:52vh;object-fit:contain;border-radius:12px;background:#1D1B2E;display:block;margin-bottom:10px"></a>`;
+  abrirFicha('Arquivo', () => (DB.anexos || []).find(y => y.id === xid), [
+    { k: 'tipo', rot: 'O que é', tipo: 'select', ops: TIPOS_ANEXO, meia: true }, { k: 'data', rot: 'Data', tipo: 'date', obrig: true, meia: true },
+    { k: 'nota', rot: 'Observação', tipo: 'area', linhas: 2, dica: 'Ex.: lesão na orelha esquerda, 2º dia de tratamento' },
+  ], { sub: esc(animal(x.animalId)?.nome || '') + (x.por === 'tutor' ? ' · enviado pelo tutor' : ''), topo,
+       rodape: botaoApagar('Apagar este arquivo', `apagarAnexo('${xid}')`) });
+}
+function apagarAnexo(xid) {
+  const x = (DB.anexos || []).find(y => y.id === xid); if (!x) return;
+  if (!apagarComDesfazer('Arquivo apagado', () => { DB.anexos = DB.anexos.filter(y => y.id !== xid); }, 'Apagar este arquivo do prontuário?')) return;
+  setTimeout(() => { if (!(DB.anexos || []).some(y => y.caminho === x.caminho)) arqApagar(x.caminho).catch(() => { }); }, 9000);   // só apaga de vez se ela não desfez
+}
+async function pedirAoTutor(animalId) {
+  const a = animal(animalId), t = tutor(a.tutorId);
+  const agora = new Date().toISOString();
+  let env = (DB.envios || []).find(e => e.animalId === animalId && e.ate > agora);
+  if (!env) {
+    const token = [...crypto.getRandomValues(new Uint8Array(18))].map(b => b.toString(16).padStart(2, '0')).join('');
+    env = { token, animalId, criado: agora, ate: new Date(Date.now() + 7 * 864e5).toISOString() };
+    if (MODO_REAL) {
+      try {
+        const r = await rest('envios', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ token, clinica: NUV.eid || 1, animal_id: animalId, nome_animal: a.nome, valido_ate: env.ate }) });
+        if (!r.ok) return toast('Não consegui criar o link agora (internet?)');
+      } catch (e) { return toast('Não consegui criar o link agora (internet?)'); }
+    }
+    (DB.envios = DB.envios || []).push(env); salvar();
+  }
+  const link = linkApp('/t/enviar/' + env.token);
+  const msg = `Olá, ${t.nome.split(' ')[0]}! Aqui é a Dra. Ingrid 🐾 Pode me mandar as fotos ou os exames do ${a.nome} por este link? É só tocar e escolher os arquivos:\n${link}`;
+  abrirFolha(`<h2>Pedir fotos e exames</h2>
+    <p class="small muted">O link vale até ${dataCurta(env.ate.slice(0, 10))} e só serve para mandar arquivos do ${esc(a.nome)}. O tutor não vê nada do prontuário. O que ele mandar aparece aqui em Arquivos.</p>
+    <a class="btn wa full" style="margin-top:8px" target="_blank" rel="noopener" href="${waLink(msg, t.fone)}">${ic('message-circle')} Mandar o link no WhatsApp</a>
+    <button class="btn ghost full" style="margin-top:8px" onclick="navigator.clipboard && navigator.clipboard.writeText('${link}').then(() => toast('Link copiado'))">Copiar o link</button>`);
+}
+/* arquivos que os tutores mandaram pelos links abertos (checa ao abrir o app e a cada 2 min) */
+let envChecado = 0;
+async function verificarEnvios(forcar) {
+  if (!MODO_REAL || !isLoggedIn() || !NUV.dona || !(DB.envios || []).length) return 0;
+  if (!forcar && Date.now() - envChecado < 120000) return 0;
+  envChecado = Date.now();
+  const ontem = new Date(Date.now() - 864e5).toISOString();
+  let n = 0;
+  for (const e of DB.envios.filter(x => x.ate > ontem)) {
+    const pref = `${pastaArq()}/envio/${e.token}/`;
+    for (const o of await arqListar(pref)) {
+      const caminho = pref + o.name;
+      if ((DB.anexos || []).some(x => x.caminho === caminho)) continue;
+      const mime = (o.metadata && o.metadata.mimetype) || '';
+      (DB.anexos = DB.anexos || []).push({ id: uid('arq'), animalId: e.animalId, caminho, mime, nome: o.name, tamanho: (o.metadata && o.metadata.size) || 0, tipo: mime === 'application/pdf' ? 'Exame' : 'Foto', nota: '', data: isoHoje(), por: 'tutor', novo: true });
+      n++;
+    }
+  }
+  if (n) { salvar(); toast(n === 1 ? 'Chegou 1 arquivo de tutor' : `Chegaram ${n} arquivos de tutores`); }
+  return n;
+}
+/* depois de cada sincronia: pede os links das fotos de perfil e dos arquivos recentes */
+function arqAposSincronia() {
+  const cs = [...DB.animais.map(a => a.foto), ...(DB.anexos || []).slice(-200).map(x => x.caminho)].filter(Boolean);
+  arqAssinar(cs).then(novo => { if (novo && !isBusyEditing()) route({ manterScroll: true }); });
 }
 
 /* ---- Tabela de valores: ela cria e edita exames, procedimentos, medicações, vacinas… ---- */
@@ -797,19 +920,23 @@ TELAS.animal = id => {
     ...ats.map(x => ({ d: x.data, ic: 'stethoscope', t: x.tipo, s: x.resumo, on: `editarAtendimento('${x.id}')` })),
     ...rs.map(x => ({ d: x.data, ic: 'file-text', t: x.tipo === 'controle' ? 'Receita de controle especial nº ' + x.numero : 'Receita', s: x.itens.map(i => i.med).join(', '), on: `editarReceita('${x.id}')` })),
     ...a.pesos.map((p, pi) => ({ d: p.data, ic: 'scale', t: 'Peso ' + vg(p.kg) + ' kg', s: '', on: `editarPeso('${id}',${pi})` })),
+    ...anexosDe(id).map(x => ({ d: x.data, ic: ehPdf(x) ? 'file-text' : 'camera', t: x.tipo + (x.por === 'tutor' ? ' · enviado pelo tutor' : ''), s: x.nota || '', on: `editarAnexo('${x.id}')` })),
   ].sort((x, y) => y.d.localeCompare(x.d));
   // cuidados pendentes, sempre à vista
   const cuid = proximasDoses(id, 30).map(v => { const s = statusDose(v); return `<div class="cuidado ${s.k === 'atrasada' ? 'coral' : ''}">${ic('syringe', 'sm')}<span class="grow"><b>${esc(v.vacina)}${v.total > 1 ? ' ' + v.n + '/' + v.total : ''}</b> · ${s.txt}</span><button class="btn mini" onclick="aplicarVacina('${id}','${v.id}')">Aplicar</button></div>`; });
   if (a.checkup && diasAte(a.checkup) <= 30) cuid.push(`<div class="cuidado azul">${ic('clipboard-list', 'sm')}<span class="grow"><b>Check-up</b> · ${diasAte(a.checkup) < 0 ? 'passou ' + quando(a.checkup) : quando(a.checkup)}</span><button class="btn mini" onclick="novoHorario({animalId:'${id}',servico:'s3'})">Marcar</button></div>`);
-  const abas = [['tempo', 'Histórico'], ['vacinas', 'Vacinas'], ['atend', 'Consultas'], ['peso', 'Peso']];
+  const nArq = anexosDe(id).length;
+  const abas = [['tempo', 'Histórico'], ['arquivos', 'Arquivos' + (nArq ? ' · ' + nArq : '')], ['vacinas', 'Vacinas'], ['atend', 'Consultas'], ['peso', 'Peso']];
   let corpo = '';
   if (abaAnimal === 'tempo') corpo = tempo.length ? tempo.map(e => `<div class="item toca" ${tocavel(e.on)}><div class="ava" style="background:var(--lil-3)">${ic(e.ic)}</div><div class="grow"><b>${esc(e.t)}</b><div class="small muted">${dataCurta(e.d)}${e.s ? ' · ' + esc(e.s) : ''}</div></div></div>`).join('') : '<p class="muted" style="margin:0">Nada registrado ainda.</p>';
   if (abaAnimal === 'vacinas') corpo = (vs.length ? vs.map(v => { const s = statusDose(v); return `<div class="item toca" ${tocavel(`editarDose('${v.id}')`)}><div class="grow"><b>${esc(v.vacina)}</b> <span class="muted small">${v.total > 1 ? 'dose ' + v.n + '/' + v.total + ' · ' : ''}${v.protocolo === 'filhote' ? 'protocolo filhote' : 'anual'}</span><div class="small muted">${dataCurta(v.data)}${v.lote ? ' · lote ' + esc(v.lote) : ''}</div></div><span class="tag ${s.cls}">${s.txt}</span></div>`; }).join('') : '<p class="muted" style="margin:0">Sem vacinas.</p>') +
     `<div class="row" style="margin-top:12px"><button class="btn mini" onclick="aplicarVacina('${id}')">Aplicar vacina</button><button class="btn mini ghost" onclick="iniciarProtocoloUI('${id}')">Iniciar protocolo</button></div>`;
   if (abaAnimal === 'atend') corpo = ats.length ? ats.map(x => `<details><summary>${dataCurta(x.data)} · ${esc(x.tipo)}</summary><div><p style="margin-top:0">${esc(x.resumo)}</p><button class="btn mini ghost editar" style="margin-bottom:8px" onclick="editarAtendimento('${x.id}')">${ic('pencil', 'sm')} Editar</button>${Object.entries(x.campos || {}).filter(([, v]) => v).map(([k, v]) => `<div class="small"><b>${esc(ROTULO[k] || k)}:</b> ${esc(v)}</div>`).join('')}</div></details>`).join('') : '<p class="muted" style="margin:0">Nenhum atendimento.</p>';
+  if (abaAnimal === 'arquivos') { const ax = anexosDe(id); corpo = `<div class="row wrap" style="gap:8px"><button class="btn mini" onclick="anexar('${id}',{camera:true,tipo:'Lesão'})">${ic('camera', 'sm')} Tirar foto</button><button class="btn mini sec" onclick="anexar('${id}')">${ic('paperclip', 'sm')} Anexar foto ou PDF</button><button class="btn mini ghost" onclick="pedirAoTutor('${id}')">${ic('message-circle', 'sm')} Pedir ao tutor</button></div>
+    ${ax.length ? `<div class="galeria">${ax.map(cartaoAnexo).join('')}</div>` : '<p class="small muted" style="margin:12px 0 0">Nada ainda. Fotos de lesão, exames e documentos ficam aqui, com data — os seus e os que o tutor mandar pelo link.</p>'}`; }
   if (abaAnimal === 'peso') { const mx = Math.max(...a.pesos.map(p => p.kg), 1); corpo = a.pesos.length ? a.pesos.map((p, pi) => `<div class="toca" ${tocavel(`editarPeso('${id}',${pi})`)} style="margin:10px 0"><div class="row between small"><span>${dataCurta(p.data)}</span><b>${vg(p.kg)} kg</b></div><div class="barra"><i style="width:${p.kg / mx * 100}%"></i></div></div>`).join('') : '<p class="muted" style="margin:0">Sem pesagens.</p>'; }
   return barra(esc(a.nome), { voltar: '/tutor/' + t.id, sub: esc(t.nome), acoes: acaoBtn('pencil', 'Editar animal', `editarAnimal('${id}')`) }) + `<main>
-  <div class="card"><div class="row">${avatar(a, 'xl')}<div class="grow"><h2 style="font-size:20px">${esc(a.nome)}</h2>
+  <div class="card"><div class="row"><button type="button" class="foto-perfil" onclick="menuFotoPerfil('${id}')" aria-label="${a.foto ? 'Trocar a foto' : 'Pôr foto'} de ${esc(a.nome)}">${avatar(a, 'xl')}<span class="foto-lapis">${ic('camera', 'sm')}</span></button><div class="grow"><h2 style="font-size:20px">${esc(a.nome)}</h2>
     <div class="small muted">${esc(a.especie)} · ${esc(a.raca)} · ${esc(a.sexo)}${a.castrado ? ' · castrado(a)' : ''}</div>
     <div class="small"><b>${idade(a.nasc)}</b>${pesoAtual(a) ? ' · <b>' + vg(pesoAtual(a)) + ' kg</b>' : ''}</div>${a.obs ? `<div class="small" style="margin-top:4px">${esc(a.obs)}</div>` : ''}
     <button class="btn mini ghost editar" style="margin-top:6px" onclick="editarAnimal('${id}')">${ic('pencil', 'sm')} Editar dados</button></div></div>
@@ -818,6 +945,13 @@ TELAS.animal = id => {
   <div class="acoes" style="margin-top:12px"><a class="btn" href="#/atender/${id}">${ic('stethoscope')}Atender</a><button class="btn sec" onclick="aplicarVacina('${id}')">${ic('syringe')}Vacina</button><a class="btn sec" href="#/receita/${id}">${ic('file-text')}Receita</a><a class="btn sec" href="#/doses/${id}">${ic('scale')}Dose</a></div>
   <div class="abas" role="tablist">${abas.map(([k, n]) => `<button role="tab" aria-selected="${abaAnimal === k}" class="${abaAnimal === k ? 'on' : ''}" onclick="abaAnimal='${k}';route({manterScroll:true})">${n}</button>`).join('')}</div>
   <div class="card">${corpo}</div></main>`;
+};
+
+TELAS.animal.depois = id => {
+  const a = animal(id); if (!a) return;
+  const ax = anexosDe(id);
+  if (abaAnimal === 'arquivos' && ax.some(x => x.novo)) { ax.forEach(x => delete x.novo); salvar(); }
+  arqAssinar([a.foto, ...ax.map(x => x.caminho)]).then(novo => { if (novo && !isBusyEditing() && location.hash === '#/animal/' + id) route({ manterScroll: true }); });
 };
 
 /* ---- Vacinas: protocolo gera as doses ---- */
@@ -901,6 +1035,10 @@ TELAS.atender = (id, gid) => {
   <div class="secao"><h2>Exame físico</h2><button type="button" class="btn mini ghost" onclick="tudoNormal()">${ic('check', 'sm')} Tudo normal</button></div>
   <div class="card">${SISTEMAS.map(c => `<div class="sist" data-sist="${c}"><b>${ROTULO[c]}</b><span class="seg" role="group" aria-label="${ROTULO[c]}"><button type="button" class="ok" onclick="marcarSist('${c}','ok')">Normal</button><button type="button" class="alt" onclick="marcarSist('${c}','alt')">Alterado</button></span><input data-alt="${c}" placeholder="Descreva a alteração" aria-label="Alteração em ${ROTULO[c]}" hidden></div>`).join('')}</div>
 
+  <div class="secao"><h2>Fotos e exames</h2><span class="small muted">vão para Arquivos do ${esc(a.nome)}</span></div>
+  <div class="card"><div class="row wrap" style="gap:8px"><button type="button" class="btn mini" onclick="anexar('${id}',{camera:true,tipo:'Lesão',depois:atFotos})">${ic('camera', 'sm')} Tirar foto</button><button type="button" class="btn mini sec" onclick="anexar('${id}',{depois:atFotos})">${ic('paperclip', 'sm')} Anexar</button></div>
+    <div class="galeria" id="atGaleria">${anexosDe(id).filter(x => x.data === isoHoje()).map(cartaoAnexo).join('')}</div></div>
+
   <div class="secao"><h2>Conclusões</h2></div>
   <div class="card" style="padding-top:2px">${CONCLUSOES.map(c => `<label for="f_${c}">${ROTULO[c]}</label><div class="campo-mic"><textarea id="f_${c}" data-campo="${c}" rows="2"></textarea>${micBtn('#f_' + c)}</div>`).join('')}</div>
 
@@ -926,6 +1064,11 @@ function marcarSist(c, estado) {
   el.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.classList.contains(el.dataset.estado || '-')));
   const inp = el.querySelector('[data-alt]'); inp.hidden = el.dataset.estado !== 'alt'; if (!inp.hidden) inp.focus();
   guardarRascunho();
+}
+function atFotos(novos) {   // atualiza só a galeria: o resto da ficha da visita continua como está
+  const g = $('#atGaleria'); if (!g || !novos.length) return;
+  g.innerHTML = anexosDe(novos[0].animalId).filter(x => x.data === isoHoje()).map(cartaoAnexo).join('');
+  toast(novos.length === 1 ? 'Foto guardada nos arquivos' : `${novos.length} arquivos guardados`);
 }
 function atAddExtra(id, qtd = 1) {
   const t = tab(id); if (!t) return;
@@ -1572,7 +1715,7 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
     <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.9 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.10 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 function cartaoAcesso() {
   const partes = [];
@@ -1766,6 +1909,7 @@ function centralAvisos() {
     L.push({ k: 'ped' + g.id, grupo: 'agora', icone: 'calendar', titulo: `Pedido de horário · ${a.nome}`, sub: `${t.nome} · ${diaSem(g.data)} ${dataCurta(g.data)} às ${g.hora} · ${servicosTxt(g)}`, rotulo: 'Confirmar', acao: `confirmar('${g.id}')`, extra: `recusar('${g.id}')`, extraRot: 'Outro horário' });
   });
   if (typeof NUV !== 'undefined' && NUV.conflito) L.push({ k: 'conflito', grupo: 'agora', icone: 'triangle-alert', titulo: 'Mudou em dois aparelhos', sub: 'Escolha qual versão fica — a outra vai para as cópias.', rotulo: 'Escolher', acao: 'nuvConflito(window.__nuvRemoto)', fixo: true });
+  (DB.anexos || []).filter(x => x.novo).forEach(x => { const a = animal(x.animalId); if (a) L.push({ k: 'anx' + x.id, grupo: 'agora', icone: 'camera', titulo: `Arquivo do tutor · ${a.nome}`, sub: `${x.tipo} · chegou ${dataCurta(x.data)}`, rotulo: 'Ver', acao: `abaAnimal='arquivos';go('/animal/${a.id}')` }); });
   // hoje: tutores para avisar (vacina, check-up, avaliação)
   avisosHoje().forEach(x => L.push({ k: 'av' + x.k, grupo: 'hoje', icone: x.tipo === 'Vacina' ? 'syringe' : x.tipo === 'Check-up' ? 'clipboard-list' : 'star', titulo: `${x.tipo} · ${x.a.nome}`, sub: `${x.t.nome} · ${x.titulo}`, rotulo: 'Avisar', acao: `avisar('${x.k}')`, wa: true }));
   // pode esperar: dinheiro em aberto há mais de 7 dias, estoque
@@ -1933,6 +2077,42 @@ function horariosDoDia(dia) {
   for (let m = minutos(h.ini); m + 60 <= minutos(h.fim); m += h.passo) slots.push(hhmm(m));
   if (!ocupCache[dia]) { ocupCache[dia] = 'carregando'; pubOcupados(dia).then(o => { ocupCache[dia] = o; route({ manterScroll: true }); }); }
   return ocupCache[dia] === 'carregando' ? null : slots.filter(s => !ocupCache[dia].includes(s));
+}
+const envioInfo = {}, envioFeitos = {};
+async function carregarEnvio(token) {
+  if (!MODO_REAL) { const e = (DB.envios || []).find(x => x.token === token); envioInfo[token] = e ? { nome_animal: animal(e.animalId)?.nome || '', clinica: 'demo', valido: e.ate > new Date().toISOString() } : false; return; }
+  try { const r = await rest('rpc/envio_info', { method: 'POST', body: JSON.stringify({ tk: token }) }); const [x] = r.ok ? await r.json() : []; envioInfo[token] = x || false; }
+  catch (e) { envioInfo[token] = false; }
+}
+TUTOR_REAL.enviar = token => {
+  if (!(token in envioInfo)) { envioInfo[token] = null; carregarEnvio(token).then(() => route({ manterScroll: true })); }
+  const inf = envioInfo[token];
+  if (inf === null) return barra('Enviar arquivos', { voltar: '/t' }) + '<main><p class="muted">Carregando…</p></main>';
+  if (!inf || !inf.valido) return barra('Enviar arquivos', { voltar: '/t' }) + '<main style="max-width:520px"><div class="aviso">Este link venceu ou não existe. Peça um novo à Dra. Ingrid pelo WhatsApp.</div></main>';
+  const feitos = envioFeitos[token] || [];
+  return barra('Arquivos do ' + esc(inf.nome_animal), { voltar: '/t' }) + `<main style="max-width:520px"><div class="card">
+    <p style="margin-top:0">Mande fotos ou exames do <b>${esc(inf.nome_animal)}</b> para a Dra. Ingrid. Só ela vê.</p>
+    <div class="stack"><button class="btn full" onclick="tutorEnviar('${token}',true)">${ic('camera')} Tirar foto agora</button>
+    <button class="btn sec full" onclick="tutorEnviar('${token}',false)">${ic('paperclip')} Escolher fotos ou PDF</button></div>
+    <div id="envStatus" class="small" style="margin-top:12px" aria-live="polite">${feitos.map(n => `<div style="color:var(--verde)">${ic('check', 'sm')} ${esc(n)} enviado</div>`).join('')}</div></div>
+    ${feitos.length ? '<p class="small muted" style="text-align:center">Pronto! A Dra. Ingrid já recebeu. Pode fechar esta página.</p>' : ''}</main>`;
+};
+TUTOR.enviar = TUTOR_REAL.enviar;   // na demonstração a mesma página, guardando só nesta aba
+async function tutorEnviar(token, camera) {
+  const inf = envioInfo[token]; if (!inf) return;
+  const arqs = await escolherArquivos({ camera });
+  const st = $('#envStatus');
+  for (const f of arqs) {
+    if (st) st.insertAdjacentHTML('beforeend', `<div class="muted" data-env>Enviando ${esc(f.name || 'foto')}…</div>`);
+    try {
+      const b = await comprimir(f), mime = b.type || f.type || '', id = uid('t');
+      const caminho = `${inf.clinica === 'demo' ? 'demo' : 'c' + inf.clinica}/envio/${token}/${id}.${extDe(mime)}`;
+      await arqEnviar(caminho, b);
+      if (!MODO_REAL) { const e = DB.envios.find(x => x.token === token); (DB.anexos = DB.anexos || []).push({ id: uid('arq'), animalId: e.animalId, caminho, mime, nome: f.name || '', tamanho: b.size, tipo: mime === 'application/pdf' ? 'Exame' : 'Foto', nota: '', data: isoHoje(), por: 'tutor', novo: true }); salvar(); }
+      (envioFeitos[token] = envioFeitos[token] || []).push(f.name || 'Foto');
+    } catch (e) { toast('Não foi: ' + (/30|limite|row-level/i.test(e.message || '') ? 'o link venceu ou chegou ao limite' : (e.message || 'sem internet?'))); }
+  }
+  route({ manterScroll: true });
 }
 TUTOR_REAL.agendar = () => {
   if (pubCarregando()) return barra('Marcar visita', { voltar: '/t' }) + '<main><p class="muted">Carregando…</p></main>';
