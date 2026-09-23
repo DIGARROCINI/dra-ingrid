@@ -140,3 +140,13 @@ function seedDB() {
     avisos: {},
   };
 }
+
+/* Começo do app DE VERDADE (modo real): a configuração e a tabela dela,
+   sem nenhum cliente, animal ou lançamento de exemplo. */
+function seedReal() {
+  const s = seedDB();
+  return {
+    seedVer: SEED_VER, cfg: s.cfg, tabela: s.tabela, protocolos: s.protocolos, checkupMeses: s.checkupMeses, formulario: s.formulario,
+    tutores: [], animais: [], doses: [], agenda: [], atendimentos: [], orcamentos: [], lanc: [], estoque: [], receitas: [], avaliacoes: [], avisos: {},
+  };
+}

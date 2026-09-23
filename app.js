@@ -1,7 +1,8 @@
 /* Protótipo v0.2 — app da Dra. Ingrid Garrocini (veterinária a domicílio).
    Sem banco: tudo mora no localStorage deste aparelho. Duas faces: painel da Ingrid (#/...) e lado do tutor (#/t...). */
 
-const DB_K = 'vetig_db_v1';
+const DB_K = MODO_REAL ? 'vetig_real_v1' : 'vetig_db_v1';   // o real e a demonstração nunca se misturam
+const COFRE_K = 'vetig_cofre_v1';
 const RASC_K = 'vetig_rasc_';
 const TUTOR_DEMO = 't1';
 
@@ -53,9 +54,27 @@ function comDesfazer(msg, fn) {
 let DB;
 function carregar() {
   try { DB = JSON.parse(localStorage.getItem(DB_K)); } catch (e) { DB = null; }
-  if (!DB || DB.seedVer !== SEED_VER) { DB = seedDB(); salvar(); }
+  if (MODO_REAL) { if (!DB) { DB = seedReal(); salvarLocal(); } return; }
+  if (!DB || DB.seedVer !== SEED_VER) { DB = seedDB(); salvarLocal(); }
 }
-function salvar() { try { localStorage.setItem(DB_K, JSON.stringify(DB)); } catch (e) { toast('Não consegui guardar neste aparelho'); } }
+function salvarLocal() { try { localStorage.setItem(DB_K, JSON.stringify(DB)); } catch (e) { toast('Não consegui guardar neste aparelho'); } }
+function salvar() { salvarLocal(); nuvAgendarEnvio(); }   // no modo real, sobe para a nuvem em 1,5 s
+
+/* ---------- cofre: cópias automáticas neste aparelho (fórmula app-um-so) ---------- */
+function cofreLer() { try { return JSON.parse(localStorage.getItem(COFRE_K)) || { copias: [] }; } catch (e) { return { copias: [] }; } }
+function cofreGravar(c) { try { localStorage.setItem(COFRE_K, JSON.stringify(c)); return true; } catch (e) { if (c.copias.length > 2) { c.copias.pop(); return cofreGravar(c); } return false; } }
+function cofreGuardar(motivo, dados = DB) {
+  if (!MODO_REAL || !dados) return false;
+  const peso = nuvPeso(dados), c = cofreLer(), dia = isoHoje();
+  const maiorHoje = Math.max(0, ...c.copias.filter(x => x.dia === dia).map(x => x.peso || 0));
+  const maiorTudo = Math.max(0, ...c.copias.map(x => x.peso || 0));
+  if (peso === 0 && maiorTudo > 0) return false;                                            // vazio não come cheio
+  if (motivo === 'abertura' && peso > 0 && maiorHoje > 0 && peso < maiorHoje * 0.5) return false;   // perdeu metade: suspeito
+  if (motivo === 'abertura' && c.copias.some(x => x.dia === dia && x.motivo === 'abertura')) return false;   // uma por dia
+  c.copias.unshift({ em: new Date().toISOString(), dia, peso, motivo, resumo: nuvResumo(dados), dados: JSON.parse(JSON.stringify(dados)) });
+  const porDia = {}; c.copias = c.copias.filter(x => (porDia[x.dia] = (porDia[x.dia] || 0) + 1) <= (x.dia === dia ? 3 : 1)).slice(0, 17);
+  return cofreGravar(c);
+}
 const tutor = id => DB.tutores.find(t => t.id === id);
 const animal = id => DB.animais.find(a => a.id === id);
 const tab = id => DB.tabela.find(t => t.id === id);
@@ -124,17 +143,21 @@ function route(opts = {}) {
   const h = (location.hash || '#/').slice(1);
   const p = h.split('/').filter(Boolean);
   const ladoTutor = p[0] === 't';
-  document.body.classList.toggle('tutor', ladoTutor);
-  fecharFolha();
-  $('#faixa').innerHTML = ladoTutor
-    ? '<span>Protótipo · você está vendo o app como <b>tutor</b></span><button onclick="go(\'/\')">Voltar à Ingrid</button>'
-    : '<span>Protótipo · dados de exemplo</span><button onclick="go(\'/t\')">Ver como tutor</button>';
+  const precisaEntrar = MODO_REAL && !ladoTutor && (!isLoggedIn() || NUV.dona === false || p[0] === 'nova-senha');
+  document.body.classList.toggle('tutor', ladoTutor || precisaEntrar);
+  if (!NUV.conflito) fecharFolha();
+  if (!MODO_REAL) {
+    $('#faixa').innerHTML = ladoTutor
+      ? '<span>Demonstração · você está vendo o app como <b>tutor</b></span><button onclick="go(\'/\')">Voltar à Ingrid</button>'
+      : '<span>Demonstração · dados de exemplo</span><button onclick="go(\'/t\')">Ver como tutor</button>';
+  } else nuvStatus(NUV.status);
   const aba = ({ '': 'hoje', agenda: 'agenda', clientes: 'clientes', tutor: 'clientes', animal: 'clientes', atender: 'clientes', receita: 'clientes', assistente: 'ia' }[p[0] || ''] || 'mais');
   $('#rail').innerHTML = '<div class="rail-marca"><img src="simbolo.png" alt="">Dra. Ingrid</div>' +
     [['hoje', '/', 'Hoje', 'house'], ['agenda', '/agenda', 'Agenda', 'calendar'], ['clientes', '/clientes', 'Clientes', 'users'], ['ia', '/assistente', 'Assistente', 'sparkles'], ['mais', '/mais', 'Mais', 'ellipsis']]
       .map(([k, href, t, i]) => `<a href="#${href}" class="${aba === k ? 'on' : ''}" ${aba === k ? 'aria-current="page"' : ''}>${ic(i)}${t}</a>`).join('');
 
-  const tela = ladoTutor ? TUTOR[p[1] || 'home'] : TELAS[p[0] || 'hoje'];
+  const tela = precisaEntrar ? (p[0] === 'nova-senha' ? TELAS['nova-senha'] : NUV.dona === false && isLoggedIn() ? TELAS.naoDona : TELAS.entrar)
+    : ladoTutor ? (MODO_REAL ? (TUTOR_REAL[p[1]] || TUTOR_REAL.home) : TUTOR[p[1] || 'home']) : TELAS[p[0] || 'hoje'];
   const args = ladoTutor ? p.slice(2) : p.slice(1);
   $('#app').innerHTML = tela ? tela(...args) : '<main><p>Tela não encontrada.</p></main>';
   if (tela && tela.depois) tela.depois(...args);
@@ -178,7 +201,7 @@ function avisosHoje() {
     const a = animal(at.animalId), t = tutor(a.tutorId), k = 'av' + at.id;
     if (DB.avisos[k] || DB.avaliacoes.some(x => x.tutorId === t.id && diasAte(x.data) >= -3)) return;
     lista.push({ k, a, t, tipo: 'Avaliação', cls: 'verde', titulo: `Pedir avaliação da visita de ${quando(at.data)}`,
-      msg: `Oi, ${t.nome.split(' ')[0]}! Obrigada por confiar em mim para cuidar do ${a.nome} 💜\nConta como foi? Leva 1 minuto: ${linkApp('/t/avaliar')}` });
+      msg: `Oi, ${t.nome.split(' ')[0]}! Obrigada por confiar em mim para cuidar do ${a.nome} 💜\n` + (MODO_REAL ? (DB.cfg.google ? `Se puder, deixe sua avaliação no Google — ajuda outros tutores a me encontrar: ${DB.cfg.google}` : 'Qualquer dúvida sobre o tratamento, é só me chamar aqui.') : `Conta como foi? Leva 1 minuto: ${linkApp('/t/avaliar')}`) });
   });
   return lista;
 }
@@ -206,7 +229,7 @@ function linkGoogle(g) {
 }
 function confirmar(gid) {
   const g = DB.agenda.find(x => x.id === gid);
-  comDesfazer('Horário confirmado', () => { g.status = 'confirmado'; });
+  comDesfazer('Horário confirmado', () => { g.status = 'confirmado'; const an = animal(g.animalId); if (an) { delete an.provisorio; const tu = tutor(an.tutorId); if (tu) delete tu.provisorio; } });
   const a = animal(g.animalId), t = tutor(a.tutorId);
   const msg = `Olá, ${t.nome.split(' ')[0]}! Visita confirmada ✅\n${servicosTxt(g) || 'Visita'} do ${a.nome}\n${diaSem(g.data)}, ${dataCurta(g.data)} às ${g.hora}\nEndereço: ${endereco(t)}\nQualquer mudança é só me chamar. Dra. Ingrid 🐾`;
   route({ manterScroll: true });
@@ -219,7 +242,12 @@ function confirmar(gid) {
 }
 function recusar(gid) {
   const g = DB.agenda.find(x => x.id === gid), a = animal(g.animalId), t = tutor(a.tutorId);
-  comDesfazer('Pedido retirado da agenda', () => { DB.agenda = DB.agenda.filter(x => x.id !== gid); });
+  comDesfazer('Pedido retirado da agenda', () => {
+    DB.agenda = DB.agenda.filter(x => x.id !== gid);
+    const semUso = aid => !DB.agenda.some(x => x.animalId === aid) && !DB.doses.some(x => x.animalId === aid) && !DB.atendimentos.some(x => x.animalId === aid);
+    if (a.provisorio && semUso(a.id)) DB.animais = DB.animais.filter(x => x.id !== a.id);
+    if (t.provisorio && !DB.animais.some(x => x.tutorId === t.id)) DB.tutores = DB.tutores.filter(x => x.id !== t.id);
+  });
   const msg = `Olá, ${t.nome.split(' ')[0]}! Infelizmente não consigo ${diaSem(g.data)} ${dataCurta(g.data)} às ${g.hora}. Pode escolher outro horário aqui? ${linkApp('/t/agendar')} 🐾`;
   route({ manterScroll: true });
   abrirFolha(`<h2>Pedir outro horário</h2><p class="muted small">O pedido saiu da agenda. Mande o link para ${esc(t.nome.split(' ')[0])} escolher outro.</p><a class="btn wa full" style="margin-top:12px" target="_blank" rel="noopener" href="${waLink(msg)}">${ic('message-circle')} Mandar no WhatsApp</a>`);
@@ -638,13 +666,15 @@ function salvarAtendimento(id, gid) {
   localStorage.removeItem(RASC_K + id); rascId = null;
   desfazVisita = foto;
   const t = tutor(a.tutorId);
-  const msg = `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nAqui está o resumo da visita do ${a.nome}, com os valores e as formas de pagamento (Pix ou cartão):\n${linkApp('/t/orcamento/' + o.id)}`;
+  const msg = MODO_REAL
+    ? `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nResumo da visita do ${a.nome}:\n` + itens.map(i => `• ${tab(i.tab)?.nome} — ${brl(tab(i.tab)?.preco)}`).join('\n') + `\nTotal: ${brl(totalItens(itens))}\nPode pagar por Pix${DB.cfg.pix ? ' (chave ' + DB.cfg.pix + ')' : ''} ou cartão. Dra. Ingrid 🐾`
+    : `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nAqui está o resumo da visita do ${a.nome}, com os valores e as formas de pagamento (Pix ou cartão):\n${linkApp('/t/orcamento/' + o.id)}`;
   abaAnimal = 'tempo';
   go('/animal/' + id);
   setTimeout(() => {
     abrirFolha(`<h2>Visita finalizada</h2><p class="muted">Total ${brl(totalItens(itens))}${vacs.length ? ' · vacinas baixadas do estoque' : ''}</p>
       <div class="stack" style="margin-top:12px"><a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg)}">${ic('message-circle')} Mandar resumo e valores no WhatsApp</a>
-      <a class="btn sec full" href="#/t/orcamento/${o.id}">${ic('eye')} Ver o que o tutor recebe</a>
+      ${MODO_REAL ? '' : `<a class="btn sec full" href="#/t/orcamento/${o.id}">${ic('eye')} Ver o que o tutor recebe</a>`}
       <button class="btn ghost full" onclick="DB=JSON.parse(desfazVisita);salvar();fecharFolha();route();toast('Visita desfeita')">${ic('undo-2')} Desfazer</button></div>`);
   }, 30);
 }
@@ -963,8 +993,12 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   ${[['/financeiro', 'wallet', 'Financeiro', 'Entradas, saídas, a receber'], ['/estoque', 'package', 'Estoque', 'Vacinas, medicamentos, insumos'], ['/doses', 'scale', 'Calcular dose', 'Lista de medicamentos conferida no VetSmart'], ['/avaliacoes', 'star', 'Avaliações', 'O que os tutores acharam'],
     ['/adm/tabela', 'tag', 'Tabela de valores', 'Vacinas, consultas, deslocamento'], ['/adm/protocolos', 'shield-check', 'Protocolos de vacina', 'Filhote e anual · check-up'], ['/adm/perfil', 'id-card', 'Meus dados profissionais', 'CRMV, MAPA, Pix, WhatsApp, Google'], ['/t', 'eye', 'Ver como tutor', 'O link que o cliente recebe']]
     .map(([h, i, t, s]) => `<a href="#${h}"><span class="icm">${ic(i)}</span><span class="grow">${t}<small>${s}</small></span>${ic('chevron-right')}</a>`).join('')}
-  </div><button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>
-  <p class="tiny muted" style="text-align:center;margin-top:10px">Protótipo v0.2 · os dados ficam só neste aparelho</p></main>`;
+  ${MODO_REAL ? `<a href="#/copias"><span class="icm">${ic('shield-check')}</span><span class="grow">Cópias de segurança<small>Guardadas sozinhas neste aparelho</small></span>${ic('chevron-right')}</a>` : ''}
+  </div>
+  ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
+    <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
+    : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.3 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 TELAS.adm = sub => {
   if (sub === 'tabela') {
@@ -1110,6 +1144,166 @@ function enviarAvaliacao() {
   window.scrollTo(0, 0);
 }
 
+
+/* ================= LOGIN (modo real) ================= */
+let modoEntrar = 'entrar';
+const telaSemRail = (titulo, sub, corpo) => `<section class="hero" style="text-align:center"><div class="in"><img src="simbolo.png" alt="" style="height:52px"><div class="small" style="margin-top:8px;font-weight:700">Dra. Ingrid Garrocini</div><div class="tiny" style="color:var(--tinta-lil)">Veterinária a domicílio</div><h1 style="margin-top:14px">${titulo}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div></section><main style="max-width:440px">${corpo}</main>`;
+TELAS.entrar = () => {
+  const m = modoEntrar;
+  return telaSemRail(m === 'criar' ? 'Criar minha senha' : m === 'esqueci' ? 'Esqueci a senha' : 'Entrar', m === 'criar' ? 'Só no primeiro acesso' : '', `<form class="card" id="fEntrar" onsubmit="event.preventDefault();entrar()">
+    <label for="enEmail" style="margin-top:0">E-mail</label><input id="enEmail" type="email" autocomplete="username" inputmode="email" required>
+    ${m !== 'esqueci' ? `<label for="enSenha">${m === 'criar' ? 'Escolha uma senha (mínimo 8 caracteres)' : 'Senha'}</label><input id="enSenha" type="password" autocomplete="${m === 'criar' ? 'new-password' : 'current-password'}" minlength="${m === 'criar' ? 8 : 1}" required>` : ''}
+    <button class="btn full" id="enBtn" style="margin-top:16px">${m === 'criar' ? 'Criar senha' : m === 'esqueci' ? 'Mandar link para o e-mail' : 'Entrar'}</button>
+    <div id="enMsg" class="small" style="margin-top:12px" role="alert"></div></form>
+    <div class="stack" style="margin-top:14px;text-align:center">
+      ${m !== 'entrar' ? `<button class="btn ghost full" onclick="modoEntrar='entrar';route()">Já tenho senha — entrar</button>` : `<button class="btn ghost full" onclick="modoEntrar='criar';route()">Primeiro acesso: criar minha senha</button><button class="btn ghost full" onclick="modoEntrar='esqueci';route()">Esqueci a senha</button>`}
+    </div>
+    <p class="tiny muted" style="text-align:center;margin-top:16px">É o tutor? <a href="#/t">Marcar uma visita</a></p>`);
+};
+async function entrar() {
+  const email = $('#enEmail').value.trim(), senha = $('#enSenha') ? $('#enSenha').value : '', btn = $('#enBtn'), msg = $('#enMsg');
+  btn.disabled = true; const txt = btn.textContent; btn.textContent = 'Um momento…'; msg.textContent = '';
+  try {
+    if (modoEntrar === 'esqueci') {
+      const r = await authReset(email);
+      msg.textContent = r.ok ? 'Pronto! Abra o e-mail e toque no link para criar uma senha nova.' : 'Não consegui mandar: ' + (r.error || 'tente de novo');
+    } else if (modoEntrar === 'criar') {
+      const r = await authSignUp(email, senha);
+      if (!r.ok) msg.textContent = 'Não deu: ' + (r.error || 'tente de novo');
+      else if (r.needsConfirm) msg.textContent = 'Quase lá! Mandamos um e-mail de confirmação. Abra e toque no link — ele volta para cá já conectada.';
+      else { await depoisDeEntrar(); return; }
+    } else {
+      const r = await authSignIn(email, senha);
+      if (!r.ok) msg.textContent = /invalid/i.test(r.error || '') ? 'E-mail ou senha não conferem.' : /confirm/i.test(r.error || '') ? 'Falta confirmar o e-mail: abra o link que mandamos.' : 'Não deu: ' + (r.error || 'sem internet?');
+      else { await depoisDeEntrar(); return; }
+    }
+  } catch (e) { msg.textContent = 'Sem resposta da internet. Tente de novo.'; }
+  btn.disabled = false; btn.textContent = txt;
+}
+async function depoisDeEntrar() {
+  NUV.dona = null; NUV.puxou = false;
+  await nuvCiclo('login');
+  if (NUV.dona) cofreGuardar('abertura');
+  go('/');
+}
+async function sair() {
+  if (NUV.pendente) { try { await nuvEnviar(); } catch (e) { } }
+  if (NUV.pendente && !confirm('Ainda tem mudança que não subiu para a nuvem (sem internet?). Sair mesmo assim? Ela fica guardada neste aparelho.')) return;
+  await authSignOut(); NUV.dona = null; NUV.puxou = false; modoEntrar = 'entrar'; go('/');
+}
+TELAS.naoDona = () => telaSemRail('Conta sem acesso', '', `<div class="card"><p>Você entrou como <b>${esc(authEmail() || '')}</b>, mas este consultório só abre para a conta da Dra. Ingrid.</p><button class="btn full" onclick="sair()">Sair e entrar com outra conta</button></div>`);
+TELAS['nova-senha'] = () => telaSemRail('Senha nova', 'Escolha a senha que vai usar daqui para a frente', `<form class="card" onsubmit="event.preventDefault();trocarSenha()">
+  <label for="nsSenha" style="margin-top:0">Senha nova (mínimo 8 caracteres)</label><input id="nsSenha" type="password" autocomplete="new-password" minlength="8" required>
+  <button class="btn full" id="nsBtn" style="margin-top:16px">Salvar senha</button><div id="nsMsg" class="small" style="margin-top:12px" role="alert"></div></form>`);
+async function trocarSenha() {
+  const b = $('#nsBtn'); b.disabled = true;
+  const r = await authSetPassword($('#nsSenha').value);
+  if (r.ok) { toast('Senha salva'); history.replaceState(null, '', location.pathname); await depoisDeEntrar(); }
+  else { $('#nsMsg').textContent = 'Não deu: ' + (r.error || 'tente de novo'); b.disabled = false; }
+}
+
+/* ---- Cópias de segurança (cofre) ---- */
+TELAS.copias = () => {
+  const c = cofreLer();
+  const nomeMotivo = { abertura: 'ao abrir o app', conflito: 'num conflito entre aparelhos', mao: 'antes de voltar uma cópia' };
+  return barra('Cópias de segurança', { voltar: '/mais', sub: 'Guardadas sozinhas neste aparelho' }) + `<main>
+  <div class="aviso lil small">O app guarda uma cópia por dia (até 2 semanas), mais uma sempre que dois aparelhos discordam. Uma cópia vazia nunca apaga uma cheia.</div>
+  <div class="card" style="margin-top:12px">${c.copias.length ? c.copias.map((x, i) => `<div class="item"><div class="grow"><b>${new Date(x.em).toLocaleString('pt-BR')}</b><div class="small muted">${esc(x.resumo)} · ${nomeMotivo[x.motivo] || x.motivo}</div></div>
+    <div class="row" style="gap:6px"><button class="btn mini ghost" onclick="baixarCopia(${i})">Baixar</button><button class="btn mini" onclick="voltarCopia(${i})">Voltar</button></div></div>`).join('') : '<p class="muted" style="margin:0">Ainda nenhuma cópia.</p>'}</div></main>`;
+};
+function baixarCopia(i) {
+  const x = cofreLer().copias[i]; if (!x) return;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(x.dados, null, 1)], { type: 'application/json' }));
+  a.download = 'dra-ingrid-copia-' + x.dia + '.json'; a.click();
+}
+function voltarCopia(i) {
+  const x = cofreLer().copias[i]; if (!x) return;
+  if (!confirm(`Voltar para a cópia de ${new Date(x.em).toLocaleString('pt-BR')}?\n(${x.resumo})\nO que está agora vira mais uma cópia — dá para desfazer.`)) return;
+  cofreGuardar('mao', DB); DB = JSON.parse(JSON.stringify(x.dados)); salvar(); go('/'); toast('Cópia restaurada');
+}
+
+/* ================= LADO DO TUTOR — de verdade (visitante, sem dado de ninguém) ================= */
+const TUTOR_REAL = {};
+let agR = { especie: 'Cão', servicos: [] };
+const ocupCache = {};
+function pubCarregando() { if (PUB === undefined && !pubCarregando.pedido) { pubCarregando.pedido = true; pubCarregar().then(() => route({ manterScroll: true })); } return PUB === undefined; }
+TUTOR_REAL.home = () => {
+  const carregando = pubCarregando(), p = PUB || {};
+  const wa = p.whats ? 'https://wa.me/55' + soDigitos(p.whats).replace(/^55/, '') : '';
+  return `<section class="hero" style="text-align:center"><div class="in"><img src="simbolo.png" alt="" style="height:56px"><div class="small" style="margin-top:8px;font-weight:700">Dra. Ingrid Garrocini</div><div class="tiny" style="color:var(--tinta-lil)">Médica-veterinária · atendimento a domicílio${p.crmv ? ' · CRMV ' + esc(p.crmv) : ''}</div><h1 style="margin-top:14px">Cuidado veterinário na sua casa</h1><div class="sub">Vacinas, consultas e check-up sem estresse para o seu pet</div></div></section><main style="max-width:520px">
+  <a class="btn full" href="#/t/agendar" style="padding:16px">${ic('calendar')} Marcar uma visita</a>
+  <div class="card menu" style="margin-top:14px">
+    ${wa ? `<a href="${wa}" target="_blank" rel="noopener"><span class="icm" style="background:var(--verde-2);color:var(--wa)">${ic('message-circle')}</span><span class="grow">Falar no WhatsApp<small>${esc(p.whats)}</small></span>${ic('chevron-right')}</a>` : ''}
+    ${p.google ? `<a href="${esc(p.google)}" target="_blank" rel="noopener"><span class="icm">${ic('star')}</span><span class="grow">Avaliar no Google<small>Ajuda outros tutores a me encontrar</small></span>${ic('chevron-right')}</a>` : ''}
+    <a href="#/t/agendar"><span class="icm">${ic('syringe')}</span><span class="grow">Vacinas, consultas e check-up<small>${carregando ? 'carregando os valores…' : 'ver serviços e valores'}</small></span>${ic('chevron-right')}</a>
+  </div>
+  <p class="tiny muted" style="text-align:center;margin-top:16px">A Dra. Ingrid confirma cada visita pelo WhatsApp.</p></main>`;
+};
+function horariosDoDia(dia) {
+  const h = (PUB && PUB.horario) || { ini: '08:00', fim: '19:00', passo: 60 }, slots = [];
+  for (let m = minutos(h.ini); m + 60 <= minutos(h.fim); m += h.passo) slots.push(hhmm(m));
+  if (!ocupCache[dia]) { ocupCache[dia] = 'carregando'; pubOcupados(dia).then(o => { ocupCache[dia] = o; route({ manterScroll: true }); }); }
+  return ocupCache[dia] === 'carregando' ? null : slots.filter(s => !ocupCache[dia].includes(s));
+}
+TUTOR_REAL.agendar = () => {
+  if (pubCarregando()) return barra('Marcar visita', { voltar: '/t' }) + '<main><p class="muted">Carregando…</p></main>';
+  if (!PUB) return barra('Marcar visita', { voltar: '/t' }) + '<main style="max-width:520px"><div class="aviso">A agenda online ainda não está aberta (ou a internet caiu). Tente de novo em instantes, ou chame a Dra. Ingrid no WhatsApp.</div><button class="btn ghost full" style="margin-top:12px" onclick="PUB=undefined;pubCarregando.pedido=false;route()">Tentar de novo</button></main>';
+  const h = PUB.horario || { dias: [0, 1, 2, 3, 4, 5, 6] };
+  const servs = (PUB.tabela || []).filter(x => x.cat !== 'Deslocamento' && (!x.especie || x.especie === 'Ambos' || x.especie === agR.especie));
+  agR.servicos = agR.servicos.filter(id => servs.some(s => s.id === id));
+  const dias = Array.from({ length: 14 }, (_, i) => isoMais(isoHoje(), i + 1)).filter(d => (h.dias || [0, 1, 2, 3, 4, 5, 6]).includes(diaSemN(d)));
+  agR.dia = agR.dia && dias.includes(agR.dia) ? agR.dia : dias[0];
+  const livres = horariosDoDia(agR.dia);
+  if (livres && !livres.includes(agR.hora)) agR.hora = '';
+  const soma = agR.servicos.reduce((s, id) => s + (servs.find(x => x.id === id)?.preco || 0), 0);
+  const campo = (id, rot, tipo = 'text', extra = '') => `<label for="ag_${id}">${rot}</label><input id="ag_${id}" type="${tipo}" value="${esc(agR[id] || '')}" oninput="agR.${id}=this.value;ctaAgendar()" ${extra}>`;
+  return barra('Marcar visita', { voltar: '/t', sub: 'A Dra. Ingrid confirma pelo WhatsApp' }) + `<main class="com-cta" style="max-width:560px">
+  <div class="secao" style="margin-top:4px"><h2>Seus dados</h2></div><div class="card" style="padding-top:2px">
+    ${campo('nome', 'Seu nome', 'text', 'autocomplete="name"')}${campo('fone', 'WhatsApp (com DDD)', 'tel', 'autocomplete="tel" inputmode="tel"')}
+    ${campo('endereco', 'Endereço da visita', 'text', 'autocomplete="street-address"')}${campo('bairro', 'Bairro')}</div>
+  <div class="secao"><h2>Seu pet</h2></div><div class="card" style="padding-top:2px">${campo('animal', 'Nome do pet')}
+    <label>É cão ou gato?</label><div class="abas" style="margin:0">${['Cão', 'Gato'].map(e => `<button type="button" class="${agR.especie === e ? 'on' : ''}" aria-pressed="${agR.especie === e}" onclick="agR.especie='${e}';route({manterScroll:true})">${ic(e === 'Gato' ? 'cat' : 'dog', 'sm')} ${e}</button>`).join('')}</div></div>
+  <div class="secao"><h2>O que precisa?</h2><span class="small muted">pode marcar mais de um</span></div><div class="card">${servs.map(x => `<label class="preco-lin"><input type="checkbox" ${agR.servicos.includes(x.id) ? 'checked' : ''} onchange="agR.servicos=this.checked?[...agR.servicos,'${x.id}']:agR.servicos.filter(s=>s!=='${x.id}');route({manterScroll:true})"><span>${esc(x.nome)}</span><b>${brl(x.preco)}</b></label>`).join('')}
+    <p class="tiny muted" style="margin:8px 0 0">+ taxa de deslocamento, conforme a distância.</p></div>
+  <div class="secao"><h2>Qual dia?</h2></div><div class="dias">${dias.map(d => `<button class="${d === agR.dia ? 'on' : ''}" onclick="agR.dia='${d}';agR.hora='';route({manterScroll:true})">${diaSem(d)}<b>${d.slice(8)}</b></button>`).join('')}</div>
+  <div class="secao"><h2>Horário</h2></div><div class="sugs">${livres === null ? '<span class="muted small">Vendo os horários livres…</span>' : livres.map(x => `<button aria-pressed="${agR.hora === x}" style="${agR.hora === x ? 'background:var(--tinta);color:#fff;border-color:var(--tinta)' : ''}" onclick="agR.hora='${x}';route({manterScroll:true})">${x}</button>`).join('') || '<span class="muted small">Dia lotado — escolha outro.</span>'}</div>
+  <label for="ag_obs">Quer contar algo? (opcional)</label><textarea id="ag_obs" rows="2" oninput="agR.obs=this.value" placeholder="Ex.: está coçando a orelha">${esc(agR.obs || '')}</textarea>
+  <p class="tiny muted" style="margin-top:10px">Seus dados vão só para a Dra. Ingrid, para confirmar a visita.</p>
+  </main>
+  <div class="cta-fixa"><div class="in"><div class="grow"><div class="tiny muted" id="ctaTxt"></div><b style="font-size:18px">${agR.servicos.length ? brl(soma) + ' + desloc.' : '—'}</b></div>
+    <button class="btn" id="ctaBtn" onclick="enviarPedido()">Pedir horário</button></div></div>`;
+};
+TUTOR_REAL.agendar.depois = () => ctaAgendar();
+function faltaAgendar() {
+  if (!(agR.nome || '').trim()) return 'Falta o seu nome';
+  if (soDigitos(agR.fone).length < 10) return 'Falta o WhatsApp com DDD';
+  if (!(agR.endereco || '').trim()) return 'Falta o endereço';
+  if (!(agR.animal || '').trim()) return 'Falta o nome do pet';
+  if (!agR.servicos.length) return 'Escolha o serviço';
+  if (!agR.hora) return 'Escolha o horário';
+  return '';
+}
+function ctaAgendar() { const f = faltaAgendar(), b = $('#ctaBtn'), t = $('#ctaTxt'); if (!b) return; b.disabled = !!f; t.textContent = f || `${diaSem(agR.dia)} ${dataCurta(agR.dia)} às ${agR.hora}`; }
+async function enviarPedido() {
+  if (faltaAgendar()) return;
+  const b = $('#ctaBtn'); b.disabled = true; b.textContent = 'Enviando…';
+  const d = { nome: agR.nome.trim(), fone: agR.fone.trim(), endereco: agR.endereco.trim(), bairro: (agR.bairro || '').trim(), animal: agR.animal.trim(), especie: agR.especie, servicos: agR.servicos, data: agR.dia, hora: agR.hora, obs: (agR.obs || '').trim() };
+  let ok = false; try { ok = await pubPedir(d); } catch (e) { }
+  if (!ok) { b.disabled = false; b.textContent = 'Pedir horário'; toast('Não consegui enviar. Confira a internet e tente de novo.'); return; }
+  delete ocupCache[d.data];
+  const txt = `${SEM_LONGO[diaSemN(d.data)]}, ${dataCurta(d.data)} às ${d.hora}`;
+  agR = { especie: 'Cão', servicos: [] };
+  $('#app').innerHTML = barra('Pedido enviado', { voltar: '/t' }) + `<main style="max-width:520px"><div class="card" style="text-align:center"><div class="ava xl" style="margin:0 auto;background:var(--verde-2);color:var(--verde)">${ic('check')}</div><h2 style="margin-top:12px">${txt}</h2><p>A Dra. Ingrid recebeu seu pedido e vai confirmar pelo WhatsApp.</p></div><a class="btn ghost full" style="margin-top:14px" href="#/t">Início</a></main>`;
+  window.scrollTo(0, 0);
+}
+
 /* ---------- partida ---------- */
 carregar();
-route();
+if (MODO_REAL) {
+  const volta = authFromHash();                        // link de confirmação ou de senha nova no e-mail
+  if (volta && volta.tipo === 'recovery') history.replaceState(null, '', location.pathname + '#/nova-senha');
+  nuvIniciar();
+  route();
+  if (volta && volta.erro) toast('O link do e-mail não valeu: ' + volta.erro);
+  if (isLoggedIn() && !(volta && volta.tipo === 'recovery')) nuvCiclo('abertura').then(() => { if (NUV.dona) cofreGuardar('abertura'); if (volta && volta.tipo === 'signup') toast('E-mail confirmado — bem-vinda!'); });
+} else route();
