@@ -47,6 +47,8 @@ async function nuvPuxar() {
   if (NUV.eid && NUV.eid !== linha.id) {                // trocou de conta neste aparelho: o que está aqui é da outra conta, não sobe
     NUV.pendente = false; NUV.puxou = false; NUV.ultimo = null; NUV.pubHash = '';
     if (linha.id === 1) DB = seedReal();
+    try { localStorage.removeItem(DB_K + '_conversa'); } catch (e) { }   // a conversa com o assistente também era da outra conta
+    if (typeof conversa !== 'undefined') conversa.length = 0;
   }
   NUV.eid = linha.id; nuvGravar();
   const remotoVazio = !linha.data || !Object.keys(linha.data).length;
@@ -133,7 +135,7 @@ async function nuvPedidos() {
 /* ---------- vitrine pública: só o que o tutor pode ver ---------- */
 function vitrine() {
   const c = DB.cfg;
-  return { nome: c.nome, crmv: c.crmv, whats: c.whats, pix: c.pix, google: c.google, horario: c.horario, tabela: DB.tabela.map(t => ({ id: t.id, nome: t.nome, cat: t.cat, preco: t.preco, vacina: t.vacina || null, especie: t.especie || null, exemplo: !!t.exemplo })) };
+  return { nome: c.nome, crmv: c.crmv, whats: c.whats, pix: c.pix, google: c.google, horario: c.horario, tabela: DB.tabela.filter(t => mostraAoTutor(t)).map(t => ({ id: t.id, nome: t.nome, cat: t.cat, preco: t.preco, vacina: t.vacina || null, especie: t.especie || null, exemplo: !!t.exemplo })) };
 }
 async function nuvVitrine() {
   const v = vitrine(), h = JSON.stringify(v);

@@ -83,10 +83,17 @@ const ehGato = a => a.especie === 'Gato';
 const avatar = (a, cls = '') => `<div class="ava ${ehGato(a) ? 'gato' : ''} ${cls}" aria-hidden="true">${ic(ehGato(a) ? 'cat' : 'dog')}</div>`;
 const avatarTutor = t => { const an = DB.animais.filter(a => a.tutorId === t.id); return `<div class="ava dupla" aria-hidden="true">${an.slice(0, 3).map(a => ic(ehGato(a) ? 'cat' : 'dog')).join('') || ic('users')}</div>`; };
 const pesoAtual = a => a.pesos.length ? a.pesos[a.pesos.length - 1].kg : null;
-const totalItens = itens => itens.reduce((s, i) => s + (tab(i.tab)?.preco || 0) * (i.qtd || 1), 0);
+const precoItem = i => (typeof i.preco === 'number' && !isNaN(i.preco)) ? i.preco : (tab(i.tab)?.preco || 0);   // preço ajustado na cobrança vale mais que o da tabela
+const qtdItem = i => (typeof i.qtd === 'number' && i.qtd > 0) ? i.qtd : 1;
+const totalItens = itens => itens.reduce((s, i) => s + precoItem(i) * qtdItem(i), 0);
 const servicosTxt = g => [g.servico, ...(g.extras || [])].map(id => tab(id)?.nome).filter(Boolean).join(' + ');
 const linkApp = h => location.origin + location.pathname + '#' + h;
-const waLink = txt => 'https://wa.me/?text=' + encodeURIComponent(txt);   // protótipo: sem número, a pessoa escolhe o contato
+/* WhatsApp: com o número do tutor abre direto na conversa dele; sem número, a pessoa escolhe o contato */
+function waLink(txt, fone) {
+  let n = String(fone || '').replace(/\D/g, '');
+  if (n.length === 10 || n.length === 11) n = '55' + n;           // (43) 99999-9999 → 5543999999999
+  return 'https://wa.me/' + (n.length >= 12 ? n : '') + '?text=' + encodeURIComponent(txt);
+}
 const endereco = t => t.endereco + ', ' + t.bairro;
 const mapsLink = t => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(endereco(t));
 const rotaLink = t => 'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=' + encodeURIComponent(endereco(t));
@@ -166,11 +173,318 @@ function route(opts = {}) {
 }
 
 /* ---------- folha (overlay) ---------- */
-function abrirFolha(html) {
+function abrirFolha(html, rasc) {
+  fichaEncerrar();
+  RASC_FOLHA = rasc || null;
   $('#folha').innerHTML = `<button class="icbtn fundo fecha" onclick="fecharFolha()" aria-label="Fechar">${ic('x')}</button>` + html;
   $('#ov').classList.add('on');
+  if (rasc) rascFolhaRecuperar(rasc);
 }
-function fecharFolha() { $('#ov').classList.remove('on'); }
+function fecharFolha() {
+  $('#ov').classList.remove('on');
+  RASC_FOLHA = null;
+  if (fichaEncerrar()) route({ manterScroll: true });   // a tela de baixo mostra o que ela acabou de editar
+}
+
+/* ---------- rascunho das folhas de cadastro: fechou sem querer, volta preenchido ---------- */
+let RASC_FOLHA = null;
+function rascFolhaGuardar() {
+  if (!RASC_FOLHA || !$('#ov').classList.contains('on')) return;
+  const v = {};
+  document.querySelectorAll('#folha input[id], #folha textarea[id], #folha select[id]').forEach(e => { v[e.id] = e.type === 'checkbox' ? e.checked : e.value; });
+  try { localStorage.setItem(RASC_K + 'folha_' + RASC_FOLHA, JSON.stringify(v)); } catch (e) { }
+}
+function rascFolhaRecuperar(k) {
+  let v = null; try { v = JSON.parse(localStorage.getItem(RASC_K + 'folha_' + k)); } catch (e) { }
+  if (!v) return;
+  const campos = [...document.querySelectorAll('#folha input[id], #folha textarea[id], #folha select[id]')];
+  const atual = e => e.type === 'checkbox' ? e.checked : e.value;
+  if (!campos.some(e => e.id in v && String(v[e.id]) !== String(atual(e)))) return;
+  campos.forEach(e => { if (e.id in v) { if (e.type === 'checkbox') e.checked = v[e.id]; else e.value = v[e.id]; } });
+  const h = document.querySelector('#folha h2');
+  if (h) h.insertAdjacentHTML('afterend', `<div class="salvo small" id="rascAviso">${ic('check', 'sm')} Continuando de onde você parou <button type="button" class="btn mini ghost" onclick="rascFolhaLimpar(true)">Limpar</button></div>`);
+}
+function rascFolhaLimpar(zerarCampos) {
+  if (RASC_FOLHA) try { localStorage.removeItem(RASC_K + 'folha_' + RASC_FOLHA); } catch (e) { }
+  if (!zerarCampos) return;
+  document.querySelectorAll('#folha input, #folha textarea').forEach(e => { if (e.type === 'checkbox') e.checked = e.defaultChecked; else e.value = e.defaultValue; });
+  document.querySelectorAll('#folha select').forEach(e => { const i = [...e.options].findIndex(o => o.defaultSelected); e.selectedIndex = i < 0 ? 0 : i; });
+  const a = $('#rascAviso'); if (a) a.remove();
+}
+document.addEventListener('input', e => { if (e.target.closest && e.target.closest('#folha')) rascFolhaGuardar(); });
+document.addEventListener('change', e => { if (e.target.closest && e.target.closest('#folha')) rascFolhaGuardar(); });
+
+/* ---------- ficha que salva sozinha ----------
+   Tudo que ela preenche fica editável depois. Cada campo grava no registro
+   enquanto ela digita — sem botão Salvar — e a nuvem recebe logo em seguida.
+   campos: [{ k: 'caminho.no.registro', rot, tipo: text|tel|num|date|time|select|area|check|url, ops, obrig, meia }] */
+let FICHA = null;
+function numBR(v) { const t = String(v == null ? '' : v).trim(); if (!t) return NaN; return parseFloat(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t); }
+function pegar(o, cam) { return cam.split('.').reduce((x, k) => x == null ? undefined : x[k], o); }
+function por(o, cam, v) { const ks = cam.split('.'); let x = o; ks.slice(0, -1).forEach(k => { if (x[k] == null || typeof x[k] !== 'object') x[k] = {}; x = x[k]; }); x[ks[ks.length - 1]] = v; }
+function campoHTML(c, v, pre) {
+  if (c.sep) return `<h3>${esc(c.sep)}</h3>`;
+  const id = pre + c.k.replace(/[^a-zA-Z0-9]/g, '_'), at = `id="${id}" data-fk="${esc(c.k)}"`, val = v == null ? '' : v;
+  if (c.tipo === 'check') return `<label class="row" style="color:var(--tinta);font-weight:500;margin-top:12px"><input type="checkbox" ${at} ${val ? 'checked' : ''}> ${esc(c.rot)}</label>`;
+  let inp;
+  if (c.tipo === 'select') {
+    const ops = c.ops.map(o => Array.isArray(o) ? o : [o, o]);
+    if (val !== '' && !ops.some(([ov]) => String(ov) === String(val))) ops.unshift([val, val]);   // valor antigo que saiu da lista continua aparecendo
+    inp = `<select ${at}>${ops.map(([ov, ot]) => `<option value="${esc(ov)}" ${String(ov) === String(val) ? 'selected' : ''}>${esc(ot)}</option>`).join('')}</select>`;
+  } else if (c.tipo === 'area') inp = `<textarea ${at} rows="${c.linhas || 3}"${c.dica ? ` placeholder="${esc(c.dica)}"` : ''}>${esc(val)}</textarea>`;
+  else {
+    const tp = c.tipo === 'date' || c.tipo === 'time' || c.tipo === 'url' ? ` type="${c.tipo}"` : c.tipo === 'num' ? ' inputmode="decimal"' : c.tipo === 'tel' ? ' inputmode="tel"' : '';
+    inp = `<input ${at}${tp} value="${esc(c.tipo === 'num' && val !== '' ? vg(val) : val)}"${c.dica ? ` placeholder="${esc(c.dica)}"` : ''}>`;
+  }
+  return `<div class="campo${c.meia ? ' meia' : ''}"><label for="${id}">${esc(c.rot)}</label>${inp}<div class="falta" hidden>${esc(typeof c.obrig === 'string' ? c.obrig : 'Não pode ficar vazio')}</div></div>`;
+}
+function lerCampo(c, el) {
+  if (c.tipo === 'check') return { ok: true, v: el.checked };
+  const t = el.value;
+  if (c.tipo === 'num') {
+    if (!t.trim()) return c.obrig ? { ok: false } : { ok: true, v: null };
+    const n = numBR(t); return isNaN(n) || n < 0 ? { ok: false } : { ok: true, v: n };
+  }
+  if (c.obrig && !t.trim()) return { ok: false };
+  if (c.valida && !c.valida(t)) return { ok: false };
+  return { ok: true, v: t };
+}
+function ligarCampos(raiz, campos, alvo, aoMudar) {
+  const mudou = e => {
+    const el = e.target.closest('[data-fk]'); if (!el || !raiz.contains(el)) return;
+    const c = campos.find(x => x.k === el.dataset.fk); if (!c) return;
+    const r = lerCampo(c, el), aviso = el.closest('.campo') && el.closest('.campo').querySelector('.falta');
+    if (aviso) aviso.hidden = r.ok;
+    if (!r.ok) return;                                   // campo obrigatório vazio: não apaga o que já estava gravado
+    const obj = alvo(); if (!obj) return;
+    por(obj, c.k, r.v);
+    if (el.type === 'checkbox') el.defaultChecked = el.checked; else if ('defaultValue' in el) el.defaultValue = el.value;   // não trava a sincronia
+    if (aoMudar) aoMudar(c, r.v);
+  };
+  raiz.addEventListener('input', mudou); raiz.addEventListener('change', mudou);
+}
+function abrirFicha(titulo, alvo, campos, { rodape = '', depois = null, sub = '' } = {}) {
+  const obj = alvo(); if (!obj) return toast('Não achei esse registro');
+  abrirFolha(`<h2>${titulo}</h2>${sub ? `<p class="small muted" style="margin:0 0 6px">${sub}</p>` : ''}
+    <div class="salvo small" id="fichaOk" aria-live="polite">${ic('check', 'sm')} Salva sozinha enquanto você digita</div>
+    <div class="campos-grade" id="ficha">${campos.map(c => campoHTML(c, c.sep ? '' : pegar(obj, c.k), 'fx_')).join('')}</div>
+    <button class="btn full" style="margin-top:16px" onclick="fecharFolha()">${ic('check')} Pronto</button>${rodape}`);
+  FICHA = { depois, t: null };
+  ligarCampos($('#ficha'), campos, alvo, () => {
+    const ok = $('#fichaOk'); ok.classList.add('salvando'); ok.textContent = 'Salvando…';
+    clearTimeout(FICHA.t); FICHA.t = setTimeout(fichaGravar, 450);
+  });
+}
+function fichaGravar() {
+  if (!FICHA) return;
+  clearTimeout(FICHA.t); FICHA.t = null;
+  if (FICHA.depois) FICHA.depois();
+  salvar();
+  const ok = $('#fichaOk'); if (ok) { ok.classList.remove('salvando'); ok.innerHTML = ic('check', 'sm') + ' Salvo'; }
+}
+function fichaEncerrar() {
+  if (!FICHA) return false;
+  if (FICHA.t) fichaGravar();
+  FICHA = null; return true;
+}
+/* ---------- editar o que já existe ---------- */
+const CATS = ['Serviços', 'Vacinas', 'Exames', 'Procedimentos', 'Medicações', 'Deslocamento'];
+const catsTabela = () => [...new Set([...CATS, ...DB.tabela.map(t => t.cat)])];
+const tabAtiva = () => DB.tabela.filter(t => !t.arquivado);
+const mostraAoTutor = t => !t.arquivado && (t.publico !== undefined ? !!t.publico : ['Serviços', 'Vacinas', 'Deslocamento'].includes(t.cat));
+const opsAnimais = () => DB.animais.map(a => [a.id, a.nome + ' — ' + (tutor(a.tutorId)?.nome || '')]);
+const opsServicos = () => tabAtiva().filter(t => t.cat !== 'Deslocamento').map(t => [t.id, t.nome]);
+const TIPOS_AT = ['Consulta domiciliar', 'Check-up (avaliação periódica)', 'Vacinação', 'Retorno', 'Procedimento', 'Exame'];
+const catsLanc = () => [...new Set(['Consultas', 'Vacinas', 'Exames', 'Procedimentos', 'Medicações', 'Combustível', 'Compra de vacinas', 'Medicamentos', 'Insumos', 'Outros', ...DB.lanc.map(l => l.cat)])];
+const tocavel = js => `role="button" tabindex="0" onclick="${js}" onkeydown="if(event.key==='Enter')this.click()"`;
+
+function editarTutor(id) {
+  const t = tutor(id); if (!t) return;
+  abrirFicha('Editar tutor', () => tutor(id), [
+    { k: 'nome', rot: 'Nome', obrig: true },
+    { k: 'fone', rot: 'WhatsApp', tipo: 'tel', meia: true }, { k: 'cpf', rot: 'CPF', meia: true },
+    { k: 'email', rot: 'E-mail' },
+    { k: 'endereco', rot: 'Endereço' },
+    { k: 'bairro', rot: 'Bairro', meia: true },
+    { k: 'faixa', rot: 'Distância', tipo: 'select', meia: true, ops: tabAtiva().filter(x => x.cat === 'Deslocamento').map(x => [x.id, x.nome.replace('Deslocamento ', '')]) },
+    { k: 'origem', rot: 'Como chegou', tipo: 'select', ops: ['WhatsApp', 'Instagram', 'Indicação', 'Google', 'Link do app', 'Assistente'] },
+  ], { depois: () => { const x = tutor(id); if (x) delete x.provisorio; },
+       rodape: botaoApagar(`Apagar ${esc(t.nome)} e os animais`, `apagarTutor('${id}')`) });
+}
+function apagarTutor(id) {
+  const t = tutor(id);
+  apagarComDesfazer('Tutor apagado', () => {
+    const ans = DB.animais.filter(a => a.tutorId === id).map(a => a.id);
+    DB.tutores = DB.tutores.filter(x => x.id !== id);
+    DB.animais = DB.animais.filter(a => a.tutorId !== id);
+    ['doses', 'atendimentos', 'receitas', 'agenda'].forEach(k => { DB[k] = DB[k].filter(x => !ans.includes(x.animalId)); });
+    DB.orcamentos = DB.orcamentos.filter(o => o.tutorId !== id || o.status === 'pago');
+  }, `Apagar ${t.nome} com os animais, vacinas, consultas, receitas e horários? Dá para desfazer logo em seguida.`) && go('/clientes');
+}
+function editarAnimal(id) {
+  const a = animal(id); if (!a) return;
+  abrirFicha('Editar animal', () => animal(id), [
+    { k: 'nome', rot: 'Nome', obrig: true },
+    { k: 'especie', rot: 'Espécie', tipo: 'select', ops: ['Cão', 'Gato'], meia: true },
+    { k: 'sexo', rot: 'Sexo', tipo: 'select', ops: [['', '—'], 'Macho', 'Fêmea'], meia: true },
+    { k: 'raca', rot: 'Raça' },
+    { k: 'nasc', rot: 'Nascimento', tipo: 'date', meia: true }, { k: 'checkup', rot: 'Próximo check-up', tipo: 'date', meia: true },
+    { k: 'castrado', rot: 'Castrado(a)', tipo: 'check' },
+    { k: 'obs', rot: 'Observações (alergia, temperamento…)', tipo: 'area', linhas: 2 },
+  ], { depois: () => { const x = animal(id); if (x) delete x.provisorio; },
+       rodape: botaoApagar(`Apagar ${esc(a.nome)}`, `apagarAnimal('${id}')`) });
+}
+function apagarAnimal(id) {
+  const a = animal(id), tid = a.tutorId;
+  apagarComDesfazer('Animal apagado', () => {
+    DB.animais = DB.animais.filter(x => x.id !== id);
+    ['doses', 'atendimentos', 'receitas', 'agenda'].forEach(k => { DB[k] = DB[k].filter(x => x.animalId !== id); });
+    DB.orcamentos = DB.orcamentos.filter(o => o.animalId !== id || o.status === 'pago');
+  }, `Apagar ${a.nome} com as vacinas, consultas, receitas e horários? Dá para desfazer logo em seguida.`) && go('/tutor/' + tid);
+}
+function editarPeso(aid, i) {
+  abrirFicha('Editar peso', () => animal(aid)?.pesos[i], [
+    { k: 'data', rot: 'Data', tipo: 'date', obrig: true, meia: true }, { k: 'kg', rot: 'Peso (kg)', tipo: 'num', obrig: true, meia: true },
+  ], { rodape: botaoApagar('Apagar este peso', `apagarComDesfazer('Peso apagado',()=>animal('${aid}').pesos.splice(${i},1))`) });
+}
+function editarHorario(gid) {
+  const g = DB.agenda.find(x => x.id === gid); if (!g) return;
+  abrirFicha('Editar horário', () => DB.agenda.find(x => x.id === gid), [
+    { k: 'animalId', rot: 'Animal', tipo: 'select', ops: opsAnimais() },
+    { k: 'servico', rot: 'Serviço', tipo: 'select', ops: opsServicos() },
+    { k: 'data', rot: 'Dia', tipo: 'date', obrig: true, meia: true }, { k: 'hora', rot: 'Hora', tipo: 'time', obrig: true, meia: true },
+    { k: 'status', rot: 'Situação', tipo: 'select', ops: [['confirmado', 'Confirmado'], ['pedido', 'Pedido do tutor (a confirmar)'], ['feito', 'Feito']] },
+    { k: 'obs', rot: 'Observação', tipo: 'area', linhas: 2 },
+  ], { depois: () => { const x = DB.agenda.find(y => y.id === gid); if (x && diaAgenda) diaAgenda = x.data; },
+       rodape: botaoApagar('Desmarcar este horário', `apagarComDesfazer('Horário desmarcado',()=>{DB.agenda=DB.agenda.filter(x=>x.id!=='${gid}')})`) });
+}
+function editarDose(did) {
+  const v = DB.doses.find(x => x.id === did); if (!v) return;
+  abrirFicha(`Vacina ${esc(v.vacina)}`, () => DB.doses.find(x => x.id === did), [
+    { k: 'data', rot: 'Data', tipo: 'date', obrig: true, meia: true },
+    { k: 'status', rot: 'Situação', tipo: 'select', ops: [['programada', 'Programada'], ['aplicada', 'Aplicada']], meia: true },
+    { k: 'lote', rot: 'Lote' },
+  ], { sub: esc(animal(v.animalId)?.nome || '') + (v.total > 1 ? ` · dose ${v.n}/${v.total}` : ''),
+       rodape: botaoApagar('Apagar esta dose', `apagarComDesfazer('Dose apagada',()=>{DB.doses=DB.doses.filter(x=>x.id!=='${did}')})`) });
+}
+function editarAtendimento(atid) {
+  const x = DB.atendimentos.find(y => y.id === atid); if (!x) return;
+  const chaves = [...new Set(['queixa', ...VITAIS, ...ANAMNESE.filter(k => (x.campos || {})[k]), ...SISTEMAS.filter(k => (x.campos || {})[k]), ...Object.keys(x.campos || {}), ...CONCLUSOES])];
+  abrirFicha('Editar consulta', () => DB.atendimentos.find(y => y.id === atid), [
+    { k: 'data', rot: 'Data', tipo: 'date', obrig: true, meia: true }, { k: 'tipo', rot: 'Tipo', tipo: 'select', ops: TIPOS_AT, meia: true },
+    { k: 'resumo', rot: 'Resumo (aparece no histórico)', tipo: 'area', linhas: 2 },
+    { sep: 'Ficha clínica' },
+    ...chaves.map(k => ({ k: 'campos.' + k, rot: ROTULO[k] || k, tipo: VITAIS.includes(k) ? 'text' : 'area', linhas: 2, meia: VITAIS.includes(k) })),
+  ], { sub: esc(animal(x.animalId)?.nome || ''),
+       rodape: botaoApagar('Apagar esta consulta', `apagarComDesfazer('Consulta apagada',()=>{DB.atendimentos=DB.atendimentos.filter(y=>y.id!=='${atid}')},'Apagar esta consulta do prontuário?')`) });
+}
+function editarReceita(rid) {
+  const r = DB.receitas.find(x => x.id === rid); if (!r) return;
+  const apagar = botaoApagar('Apagar do prontuário', `apagarComDesfazer('Receita apagada',()=>{DB.receitas=DB.receitas.filter(x=>x.id!=='${rid}')},'Apagar esta receita do prontuário?')`);
+  if (r.tipo === 'controle') return abrirFolha(`<h2>Receita de controle especial nº ${esc(r.numero || '')}</h2>
+    <p>Receita de controle especial não se altera depois de emitida (tem número e duas vias). Se precisar mudar, faça uma receita nova.</p>
+    <div class="card">${r.itens.map(i => `<p style="margin:4px 0"><b>${esc(i.med)}</b><br>${esc(i.uso || '')}</p>`).join('')}</div>${apagar}`);
+  abrirFicha('Editar receita', () => DB.receitas.find(x => x.id === rid), [
+    { k: 'data', rot: 'Data', tipo: 'date', obrig: true },
+    ...r.itens.flatMap((it, i) => [{ sep: 'Medicamento ' + (i + 1) }, { k: `itens.${i}.med`, rot: 'Nome, concentração e quantidade', obrig: true }, { k: `itens.${i}.uso`, rot: 'Como usar', tipo: 'area', linhas: 2 }]),
+  ], { sub: esc(animal(r.animalId)?.nome || ''), rodape: apagar });
+}
+function editarOrc(oid) {
+  const o = DB.orcamentos.find(x => x.id === oid); if (!o) return;
+  const t = tutor(o.tutorId);
+  if (o.status === 'pago') return abrirFolha(`<h2>Cobrança já recebida</h2><p class="muted">${esc(t?.nome || '')} · ${brl(totalItens(o.itens))} · ${o.forma === 'cartao' ? 'cartão' : 'Pix'}</p>
+    <p>O valor já entrou no financeiro. Para corrigir, edite o lançamento lá.</p><a class="btn sec full" href="#/financeiro" onclick="fecharFolha()">Abrir o financeiro</a>`);
+  abrirFicha('Editar cobrança', () => DB.orcamentos.find(x => x.id === oid), [
+    { k: 'data', rot: 'Data', tipo: 'date', obrig: true },
+    ...o.itens.flatMap((it, i) => { const tb = tab(it.tab); return [{ sep: tb ? tb.nome : 'Item' }, { k: `itens.${i}.qtd`, rot: 'Quantidade', tipo: 'num', meia: true }, { k: `itens.${i}.preco`, rot: 'Preço unitário (R$)', tipo: 'num', meia: true, dica: tb ? vg(tb.preco) + ' (tabela)' : '' }]; }),
+  ], { sub: `${esc(t?.nome || '')} · vazio = preço da tabela`, depois: () => { const x = DB.orcamentos.find(y => y.id === oid); const tot = $('#orcTot'); if (x && tot) tot.textContent = brl(totalItens(x.itens)); },
+       rodape: `<p class="small" style="margin-top:12px">Total: <b id="orcTot">${brl(totalItens(o.itens))}</b></p>` + botaoApagar('Apagar esta cobrança', `apagarComDesfazer('Cobrança apagada',()=>{DB.orcamentos=DB.orcamentos.filter(x=>x.id!=='${oid}')},'Apagar esta cobrança?')`) });
+}
+function editarLanc(lid) {
+  if (!DB.lanc.find(x => x.id === lid)) return;
+  abrirFicha('Editar lançamento', () => DB.lanc.find(x => x.id === lid), [
+    { k: 'desc', rot: 'Descrição', obrig: true },
+    { k: 'valor', rot: 'Valor (R$)', tipo: 'num', obrig: true, meia: true }, { k: 'data', rot: 'Data', tipo: 'date', obrig: true, meia: true },
+    { k: 'tipo', rot: 'Tipo', tipo: 'select', ops: [['entrada', 'Entrada'], ['saida', 'Saída']], meia: true },
+    { k: 'forma', rot: 'Forma', tipo: 'select', ops: [['pix', 'Pix'], ['cartao', 'Cartão'], ['dinheiro', 'Dinheiro']], meia: true },
+    { k: 'cat', rot: 'Categoria', tipo: 'select', ops: catsLanc() },
+  ], { rodape: botaoApagar('Apagar este lançamento', `apagarComDesfazer('Lançamento apagado',()=>{DB.lanc=DB.lanc.filter(x=>x.id!=='${lid}')})`) });
+}
+function editarEstoque(eid) {
+  if (!DB.estoque.find(x => x.id === eid)) return;
+  abrirFicha('Editar item do estoque', () => DB.estoque.find(x => x.id === eid), [
+    { k: 'nome', rot: 'Item', obrig: true },
+    { k: 'tipo', rot: 'Tipo', tipo: 'select', ops: ['Vacina', 'Medicamento', 'Insumo'], meia: true }, { k: 'lote', rot: 'Lote', meia: true },
+    { k: 'qtd', rot: 'Quantidade', tipo: 'num', obrig: true, meia: true }, { k: 'min', rot: 'Mínimo', tipo: 'num', meia: true },
+    { k: 'validade', rot: 'Validade', tipo: 'date', meia: true }, { k: 'custo', rot: 'Custo unitário (R$)', tipo: 'num', meia: true },
+  ], { rodape: botaoApagar('Apagar do estoque', `apagarComDesfazer('Item apagado',()=>{DB.estoque=DB.estoque.filter(x=>x.id!=='${eid}')})`) });
+}
+function editarRemedio(i) {
+  if (!DB.formulario[i]) return;
+  const dose = esp => [{ sep: esp }, { k: `doses.${esp}.min`, rot: 'mín. mg/kg', tipo: 'num', meia: true }, { k: `doses.${esp}.max`, rot: 'máx. mg/kg', tipo: 'num', meia: true }, { k: `doses.${esp}.duracao`, rot: 'Duração' }];
+  abrirFicha('Editar medicamento', () => DB.formulario[i], [
+    { k: 'nome', rot: 'Nome', obrig: true }, { k: 'classe', rot: 'Classe' },
+    { k: 'receita', rot: 'Tipo de receita', tipo: 'select', ops: ['Receita simples', 'Receita de controle especial'] },
+    { k: 'vias', rot: 'Vias' },
+    ...dose('Cão'), ...dose('Gato'),
+    { sep: 'Fonte' },
+    { k: 'fonte', rot: 'Link da bula (VetSmart)', tipo: 'url', obrig: 'Cole o link da bula no VetSmart', valida: v => /^https:\/\/(www\.)?vetsmart\.com\.br\//.test(v.trim()) },
+    { k: 'conferido', rot: 'Conferido em', tipo: 'date', obrig: true },
+  ], { sub: 'Doses só da bula do VetSmart', depois: () => {
+        const f = DB.formulario[i]; if (!f || !f.doses) return;
+        ['Cão', 'Gato'].forEach(esp => { const d = f.doses[esp]; if (!d) return; if (!(d.min > 0)) { delete f.doses[esp]; return; } if (!(d.max >= d.min)) d.max = d.min; if (!d.duracao) d.duracao = '—'; });
+      },
+       rodape: botaoApagar('Tirar da lista', `apagarComDesfazer('Medicamento retirado',()=>{DB.formulario.splice(${i},1)},'Tirar este medicamento da lista? O assistente deixa de dar a dose dele.')`) });
+}
+
+/* ---- Tabela de valores: ela cria e edita exames, procedimentos, medicações, vacinas… ---- */
+const UNIDADES = [['', 'unidade / vez'], 'dose', 'ml', 'comprimido', 'aplicação', 'hora', 'dia', 'sessão'];
+function editarItemTabela(tid) {
+  const t = tab(tid); if (!t) return;
+  if (t.publico === undefined) t.publico = mostraAoTutor(t);
+  const campos = [
+    { k: 'nome', rot: 'Nome', obrig: true },
+    { k: 'preco', rot: 'Preço (R$)', tipo: 'num', obrig: true, meia: true },
+    { k: 'cat', rot: 'Categoria', tipo: 'select', ops: catsTabela(), meia: true },
+    { k: 'unidade', rot: 'Cobrado por', tipo: 'select', ops: UNIDADES, meia: true },
+    { k: 'publico', rot: 'Aparece no link do tutor (para ele marcar)', tipo: 'check' },
+  ];
+  if (t.cat === 'Vacinas' || t.vacina) campos.push({ sep: 'Vacina' }, { k: 'vacina', rot: 'Nome curto (protocolos)', meia: true }, { k: 'especie', rot: 'Espécie', tipo: 'select', ops: ['Cão', 'Gato', 'Ambos'], meia: true });
+  abrirFicha('Editar item da tabela', () => tab(tid), campos, {
+    depois: () => { const x = tab(tid); if (!x) return; delete x.exemplo; if (!x.unidade) delete x.unidade; if (x.cat === 'Vacinas' && !x.vacina) { x.vacina = x.nome.replace(/^vacina\s+/i, ''); x.especie = x.especie || 'Ambos'; } },
+    rodape: botaoApagar('Tirar da tabela', `apagarComDesfazer('Item tirado da tabela',()=>{tab('${tid}').arquivado=true})`),
+  });
+}
+function novoItemTabela(cat) {
+  abrirFolha(`<h2>Novo item na tabela</h2>
+    <label for="niN">Nome</label><input id="niN" placeholder="Ex.: Hemograma completo, Fluidoterapia, Giárdia…">
+    <div class="grid2"><div><label for="niP">Preço (R$)</label><input id="niP" inputmode="decimal"></div><div><label for="niC">Categoria</label><select id="niC">${catsTabela().map(c => `<option ${c === cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div></div>
+    <label for="niU">Cobrado por</label><select id="niU">${UNIDADES.map(u => Array.isArray(u) ? u : [u, u]).map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
+    <label class="row" style="color:var(--tinta);font-weight:500;margin-top:12px"><input type="checkbox" id="niPub" ${['Serviços', 'Vacinas'].includes(cat) ? 'checked' : ''}> Aparece no link do tutor (para ele marcar)</label>
+    <div id="niVac"><div class="grid2"><div><label for="niV">Nome curto da vacina</label><input id="niV" placeholder="Ex.: Giárdia"></div><div><label for="niE">Espécie</label><select id="niE"><option>Cão</option><option>Gato</option><option>Ambos</option></select></div></div></div>
+    <button class="btn full" style="margin-top:16px" onclick="salvarItemTabela()">Adicionar à tabela</button>`, 'item_tabela');
+  const vac = () => { $('#niVac').hidden = $('#niC').value !== 'Vacinas'; };
+  $('#niC').addEventListener('change', vac); vac();
+}
+function salvarItemTabela() {
+  const nome = $('#niN').value.trim(), preco = numBR($('#niP').value), cat = $('#niC').value;
+  if (!nome) return toast('Falta o nome');
+  if (isNaN(preco)) return toast('Falta o preço');
+  const it = { id: uid('x'), nome, cat, preco, publico: $('#niPub').checked };
+  if ($('#niU').value) it.unidade = $('#niU').value;
+  if (cat === 'Vacinas') { it.vacina = $('#niV').value.trim() || nome.replace(/^vacina\s+/i, ''); it.especie = $('#niE').value; }
+  rascFolhaLimpar(); fecharFolha();
+  comDesfazer('Adicionado à tabela', () => DB.tabela.push(it)); route({ manterScroll: true });
+}
+function gravarTabela() { document.querySelectorAll('[data-preco]').forEach(i => { const t = tab(i.dataset.preco), v = numBR(i.value); if (t && !isNaN(v) && v !== t.preco) { t.preco = v; delete t.exemplo; } }); }
+function gravarProtocolos() { DB.protocolos.forEach(p => { const d = $(`[data-pd="${p.id}"]`), n = $(`[data-pi="${p.id}"]`); if (d) p.doses = parseInt(d.value, 10) || p.doses; if (n) p.intervalo = parseInt(n.value, 10) || p.intervalo; }); const c = $('#ckM'); if (c) DB.checkupMeses = parseInt(c.value, 10) || DB.checkupMeses; }
+function gravarPerfil() { const c = DB.cfg, v = s => $(s) ? $(s).value : undefined; [['nome', '#pfN'], ['crmv', '#pfC'], ['mapa', '#pfM'], ['whats', '#pfW'], ['pix', '#pfP'], ['google', '#pfG']].forEach(([k, s]) => { if (v(s) !== undefined) c[k] = v(s); }); if (v('#pfI')) c.horario.ini = v('#pfI'); if (v('#pfF')) c.horario.fim = v('#pfF'); }
+
+const botaoApagar = (txt, js) => `<button type="button" class="btn ghost full perigo" style="margin-top:8px" onclick="${js}">${ic('trash-2')} ${txt}</button>`;
+function apagarComDesfazer(msg, fn, pergunta) {
+  if (pergunta && !confirm(pergunta)) return false;
+  fecharFolha(); comDesfazer(msg, fn); route({ manterScroll: true }); return true;
+}
 $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fecharFolha(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharFolha(); });
 
@@ -210,10 +524,10 @@ function avisar(k) {
   const x = avisosHoje().find(i => i.k === k); if (!x) return;
   abrirFolha(`<h2>Avisar ${esc(x.t.nome)}</h2><p class="muted small">${esc(x.tipo)} · ${esc(x.a.nome)} · ${esc(x.t.fone)}</p>
     <label for="msgAviso">Mensagem (pode editar)</label><textarea id="msgAviso" rows="7">${esc(x.msg)}</textarea>
-    <div class="aviso lil small" style="margin-top:10px">No protótipo o WhatsApp abre para você escolher o contato. No app real ele já abre na conversa do tutor — e, na versão 2, sai sozinho.</div>
-    <div class="row" style="margin-top:14px"><a class="btn wa grow" target="_blank" rel="noopener" id="btnWa" href="${waLink(x.msg)}" onclick="marcarAvisado('${x.k}')">${ic('message-circle')} Abrir no WhatsApp</a>
+    <div class="aviso lil small" style="margin-top:10px">${x.t.fone ? 'Abre o WhatsApp já na conversa do tutor, com a mensagem pronta. É só apertar enviar.' : 'Este tutor está sem telefone no cadastro: o WhatsApp vai pedir para você escolher o contato.'}</div>
+    <div class="row" style="margin-top:14px"><a class="btn wa grow" target="_blank" rel="noopener" id="btnWa" href="${waLink(x.msg, x.t.fone)}" onclick="marcarAvisado('${x.k}')">${ic('message-circle')} Abrir no WhatsApp</a>
     <button class="btn ghost" onclick="fecharFolha();comDesfazer('Marcado como avisado',()=>{DB.avisos['${x.k}']=isoHoje()});route({manterScroll:true})">Já avisei</button></div>`);
-  $('#msgAviso').addEventListener('input', e => { $('#btnWa').href = waLink(e.target.value); });
+  $('#msgAviso').addEventListener('input', e => { $('#btnWa').href = waLink(e.target.value, x.t.fone); });
 }
 function marcarAvisado(k) { DB.avisos[k] = isoHoje(); salvar(); setTimeout(() => route({ manterScroll: true }), 400); }
 
@@ -236,7 +550,7 @@ function confirmar(gid) {
   route({ manterScroll: true });
   abrirFolha(`<h2>Horário confirmado</h2><p class="muted">${esc(a.nome)} · ${diaSem(g.data)} ${dataCurta(g.data)} às ${g.hora}</p>
     <div class="stack" style="margin-top:14px">
-      <a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg)}">${ic('message-circle')} Avisar o tutor no WhatsApp</a>
+      <a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg, t.fone)}">${ic('message-circle')} Avisar o tutor no WhatsApp</a>
       <a class="btn sec full" target="_blank" rel="noopener" href="${linkGoogle(g)}">${ic('calendar')} Pôr no Google Agenda</a>
       <p class="tiny muted">No app real a visita entra sozinha no Google Agenda da Ingrid, e os horários ocupados lá somem do link do tutor.</p>
     </div>`);
@@ -251,11 +565,11 @@ function recusar(gid) {
   });
   const msg = `Olá, ${t.nome.split(' ')[0]}! Infelizmente não consigo ${diaSem(g.data)} ${dataCurta(g.data)} às ${g.hora}. Pode escolher outro horário aqui? ${linkApp('/t/agendar')} 🐾`;
   route({ manterScroll: true });
-  abrirFolha(`<h2>Pedir outro horário</h2><p class="muted small">O pedido saiu da agenda. Mande o link para ${esc(t.nome.split(' ')[0])} escolher outro.</p><a class="btn wa full" style="margin-top:12px" target="_blank" rel="noopener" href="${waLink(msg)}">${ic('message-circle')} Mandar no WhatsApp</a>`);
+  abrirFolha(`<h2>Pedir outro horário</h2><p class="muted small">O pedido saiu da agenda. Mande o link para ${esc(t.nome.split(' ')[0])} escolher outro.</p><a class="btn wa full" style="margin-top:12px" target="_blank" rel="noopener" href="${waLink(msg, t.fone)}">${ic('message-circle')} Mandar no WhatsApp</a>`);
 }
 function aCaminho(gid) {
   const g = DB.agenda.find(x => x.id === gid), a = animal(g.animalId), t = tutor(a.tutorId);
-  return waLink(`Olá, ${t.nome.split(' ')[0]}! Aqui é a Dra. Ingrid 🐾 Estou a caminho para a visita do ${a.nome}. Chego em cerca de 20 minutos.`);
+  return waLink(`Olá, ${t.nome.split(' ')[0]}! Aqui é a Dra. Ingrid 🐾 Estou a caminho para a visita do ${a.nome}. Chego em cerca de 20 minutos.`, t.fone);
 }
 
 /* ================= TELAS DA INGRID ================= */
@@ -311,7 +625,7 @@ TELAS.hoje = () => {
   <div class="secao"><h2>Visitas de hoje</h2>${pendentes.length > 1 ? `<a class="btn mini ghost" href="${rotaDoDia(pendentes)}" target="_blank" rel="noopener">${ic('route', 'sm')} Rota do dia</a>` : ''}</div>
   <div class="card">${visitas.length ? visitas.map(g => { const a = animal(g.animalId), t = tutor(a.tutorId); return `
     <div class="item"><div class="hora">${g.hora}</div>
-      <div class="grow"><b>${esc(a.nome)}</b> <span class="muted small">· ${esc(t.nome)}</span>
+      <div class="grow toca" ${tocavel(`editarHorario('${g.id}')`)}><b>${esc(a.nome)}</b> <span class="muted small">· ${esc(t.nome)}</span>
       <div class="small">${esc(servicosTxt(g))}${g.obs ? ' · ' + esc(g.obs) : ''}</div>
       <div class="tiny muted">${ic('map-pin', 'sm')} ${esc(t.bairro)}</div></div>
       ${g.status === 'feito' ? `<span class="tag verde">${ic('check', 'sm')} feito</span>` : `<a class="btn mini" href="#/atender/${a.id}/${g.id}">Atender</a>`}</div>`; }).join('') : '<p class="muted" style="margin:0">Nenhuma visita hoje.</p>'}</div>
@@ -320,7 +634,7 @@ TELAS.hoje = () => {
   <div class="card">${avisos.length ? avisos.map(x => `
     <div class="item">${avatar(x.a)}
       <div class="grow"><b>${esc(x.a.nome)}</b> <span class="muted small">· ${esc(x.t.nome)}</span><div class="small"><span class="tag ${x.cls}">${x.tipo}</span> ${esc(x.titulo)}</div></div>
-      <button class="btn mini wa" onclick="avisar('${x.k}')" aria-label="Avisar ${esc(x.t.nome)}">${ic('message-circle', 'sm')} Avisar</button></div>`).join('') : '<p class="muted" style="margin:0">Todo mundo avisado.</p>'}</div>
+      <button class="btn mini wa" onclick="avisar('${x.k}')" aria-label="Avisar ${esc(x.t.nome)}">${ic('message-circle', 'sm')} Avisar</button></div>`).join('') : '<p class="muted small" style="margin:0">Ninguém para avisar hoje. Quando uma vacina estiver para vencer, um check-up chegar ou for hora de pedir avaliação, o tutor aparece aqui com o botão <b>Avisar</b> — ele abre o WhatsApp do tutor com a mensagem pronta.</p>'}</div>
 
   ${est.length ? `<div class="secao"><h2>Estoque</h2><a href="#/estoque" class="small">Ver tudo</a></div>
   <div class="card">${est.map(e => `<div class="item"><div class="grow"><b>${esc(e.nome)}</b><div class="small muted">${e.qtd} em estoque${e.lote ? ' · lote ' + esc(e.lote) : ''}</div></div>
@@ -357,7 +671,7 @@ TELAS.agenda = () => {
     const g = l.g, a = animal(g.animalId), t = tutor(a.tutorId); return `
     <div class="card" style="margin:8px 0"><div class="row" style="align-items:flex-start"><div class="hora">${g.hora}</div><div class="grow"><b>${esc(a.nome)}</b> <span class="muted small">· ${esc(t.nome)}</span>
       <div class="small">${esc(servicosTxt(g))} · ${esc(t.bairro)}</div>
-      <div class="row wrap" style="margin-top:8px">${g.status === 'pedido' ? `<span class="tag coral">pedido do tutor</span><button class="btn mini" onclick="confirmar('${g.id}')">Confirmar</button>` : g.status === 'feito' ? '<span class="tag verde">feito</span>' : `<a class="btn mini" href="#/atender/${a.id}/${g.id}">Atender</a>`}</div></div>
+      <div class="row wrap" style="margin-top:8px">${g.status === 'pedido' ? `<span class="tag coral">pedido do tutor</span><button class="btn mini" onclick="confirmar('${g.id}')">Confirmar</button>` : g.status === 'feito' ? '<span class="tag verde">feito</span>' : `<a class="btn mini" href="#/atender/${a.id}/${g.id}">Atender</a>`}<button class="btn mini ghost editar" onclick="editarHorario('${g.id}')">${ic('pencil', 'sm')} Editar</button></div></div>
       <a class="icbtn" target="_blank" rel="noopener" href="${linkGoogle(g)}" aria-label="Pôr no Google Agenda" title="Pôr no Google Agenda">${ic('calendar')}</a></div></div>`; })()).join('') || '<p class="muted">Dia livre.</p>'}</div>
   <div class="aviso lil small" style="margin-top:14px">O tutor marca pelo link e você confirma. No app real a agenda conversa com o seu Google Agenda nos dois sentidos.</div>
   </main>`;
@@ -366,7 +680,7 @@ function novoHorario({ hora = '10:00', animalId = '', servico = '', data = diaAg
   const ops = DB.animais.map(a => `<option value="${a.id}" ${a.id === animalId ? 'selected' : ''}>${esc(a.nome)} — ${esc(tutor(a.tutorId).nome)}</option>`).join('');
   abrirFolha(`<h2>Novo horário</h2>
     <label for="nhA">Animal</label><select id="nhA">${ops}</select>
-    <label for="nhS">Serviço</label><select id="nhS">${DB.tabela.filter(t => t.cat !== 'Deslocamento').map(t => `<option value="${t.id}" ${t.id === servico ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select>
+    <label for="nhS">Serviço</label><select id="nhS">${tabAtiva().filter(t => t.cat !== 'Deslocamento').map(t => `<option value="${t.id}" ${t.id === servico ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select>
     <div class="grid2"><div><label for="nhD">Dia</label><input type="date" id="nhD" value="${data}"></div><div><label for="nhH">Hora</label><input type="time" id="nhH" value="${hora}"></div></div>
     <label for="nhO">Observação</label><input id="nhO" placeholder="Ex.: levar balança">
     <button class="btn full" style="margin-top:16px" onclick="salvarHorario()">Guardar na agenda</button>`);
@@ -415,19 +729,19 @@ TELAS.clientes.depois = () => { const i = $('#buscaCli'); i.addEventListener('in
 function novoTutor() {
   abrirFolha(`<h2>Novo tutor</h2>
     <label for="ntN">Nome</label><input id="ntN" autocomplete="name"><div class="grid2"><div><label for="ntF">WhatsApp</label><input id="ntF" inputmode="tel" autocomplete="tel"></div><div><label for="ntC">CPF</label><input id="ntC" inputmode="numeric"></div></div>
-    <label for="ntE">Endereço</label><input id="ntE" autocomplete="street-address"><div class="grid2"><div><label for="ntB">Bairro</label><input id="ntB"></div><div><label for="ntD">Distância</label><select id="ntD">${DB.tabela.filter(t => t.cat === 'Deslocamento').map(t => `<option value="${t.id}">${esc(t.nome.replace('Deslocamento ', ''))}</option>`).join('')}</select></div></div>
+    <label for="ntE">Endereço</label><input id="ntE" autocomplete="street-address"><div class="grid2"><div><label for="ntB">Bairro</label><input id="ntB"></div><div><label for="ntD">Distância</label><select id="ntD">${tabAtiva().filter(t => t.cat === 'Deslocamento').map(t => `<option value="${t.id}">${esc(t.nome.replace('Deslocamento ', ''))}</option>`).join('')}</select></div></div>
     <label for="ntO">Como chegou</label><select id="ntO"><option>WhatsApp</option><option>Instagram</option><option>Indicação</option><option>Google</option></select>
     <h3 style="margin-top:18px">Primeiro animal</h3>
     <div class="grid2"><div><label for="naN">Nome</label><input id="naN"></div><div><label for="naE">Espécie</label><select id="naE"><option>Cão</option><option>Gato</option></select></div></div>
     <div class="grid2"><div><label for="naR">Raça</label><input id="naR"></div><div><label for="naD">Nascimento</label><input type="date" id="naD"></div></div>
-    <button class="btn full" style="margin-top:16px" onclick="salvarTutor()">Cadastrar</button>`);
+    <button class="btn full" style="margin-top:16px" onclick="salvarTutor()">Cadastrar</button>`, 'tutor');
 }
 function salvarTutor() {
   if (!$('#ntN').value.trim()) return toast('Falta o nome');
   const t = { id: uid('t'), nome: $('#ntN').value.trim(), fone: $('#ntF').value, cpf: $('#ntC').value, email: '', endereco: $('#ntE').value, bairro: $('#ntB').value, faixa: $('#ntD').value, origem: $('#ntO').value, desde: isoHoje() };
   DB.tutores.push(t);
   if ($('#naN').value.trim()) DB.animais.push({ id: uid('a'), tutorId: t.id, nome: $('#naN').value.trim(), especie: $('#naE').value, raca: $('#naR').value || 'SRD', sexo: '', castrado: false, nasc: $('#naD').value || isoHoje(), pesos: [], checkup: null });
-  salvar(); fecharFolha(); go('/tutor/' + t.id); toast('Cadastrado');
+  salvar(); rascFolhaLimpar(); fecharFolha(); go('/tutor/' + t.id); toast('Cadastrado');
 }
 
 TELAS.tutor = id => {
@@ -436,22 +750,23 @@ TELAS.tutor = id => {
   const orc = DB.orcamentos.filter(o => o.tutorId === id).sort((a, b) => b.data.localeCompare(a.data));
   const devendo = orc.filter(o => o.status !== 'pago').reduce((s, o) => s + totalItens(o.itens), 0);
   const fx = tab(t.faixa);
-  return barra(esc(t.nome), { voltar: '/clientes', sub: `Cliente desde ${dataCurta(t.desde)} · chegou por ${esc(t.origem)}` }) + `<main>
+  return barra(esc(t.nome), { voltar: '/clientes', sub: `Cliente desde ${dataCurta(t.desde)} · chegou por ${esc(t.origem)}`, acoes: acaoBtn('pencil', 'Editar tutor', `editarTutor('${id}')`) }) + `<main>
   <div class="acoes" style="grid-template-columns:repeat(3,1fr)">
-    <a class="btn wa" target="_blank" rel="noopener" href="${waLink('Olá, ' + t.nome.split(' ')[0] + '! Aqui é a Dra. Ingrid 🐾')}">${ic('message-circle')}WhatsApp</a>
+    <a class="btn wa" target="_blank" rel="noopener" href="${waLink('Olá, ' + t.nome.split(' ')[0] + '! Aqui é a Dra. Ingrid 🐾', t.fone)}">${ic('message-circle')}WhatsApp</a>
     <a class="btn sec" href="tel:${esc(t.fone.replace(/\D/g, ''))}">${ic('phone')}Ligar</a>
     <a class="btn sec" href="${mapsLink(t)}" target="_blank" rel="noopener">${ic('map-pin')}Mapa</a></div>
   ${devendo ? `<div class="aviso coral" style="margin-top:12px">Em aberto: <b>${brl(devendo)}</b></div>` : ''}
   <div class="card" style="margin-top:12px">
     <div class="small muted">Endereço</div><b>${esc(t.endereco)} — ${esc(t.bairro)}</b>
     <div class="tiny muted">${fx ? esc(fx.nome) + ' · ' + brl(fx.preco) : ''}</div>
-    <div class="grid2" style="margin-top:10px"><div><div class="small muted">WhatsApp</div><b>${esc(t.fone)}</b></div>${t.cpf ? `<div><div class="small muted">CPF</div><b>${esc(t.cpf)}</b></div>` : ''}</div>
+    <div class="grid2" style="margin-top:10px"><div><div class="small muted">WhatsApp</div><b>${esc(t.fone) || '—'}</b></div>${t.cpf ? `<div><div class="small muted">CPF</div><b>${esc(t.cpf)}</b></div>` : ''}</div>
+    <button class="btn mini ghost editar" style="margin-top:10px" onclick="editarTutor('${id}')">${ic('pencil', 'sm')} Editar dados</button>
   </div>
   <div class="secao"><h2>Animais</h2><button class="btn mini ghost" onclick="novoAnimal('${id}')">${ic('plus', 'sm')} Animal</button></div>
   ${an.map(a => { const atr = DB.doses.some(v => v.animalId === a.id && statusDose(v).k === 'atrasada'); return `<a class="card row" href="#/animal/${a.id}">${avatar(a)}
     <div class="grow"><b>${esc(a.nome)}</b><div class="small muted">${esc(a.raca)} · ${idade(a.nasc)}${pesoAtual(a) ? ' · ' + vg(pesoAtual(a)) + ' kg' : ''}</div></div>
     ${atr ? '<span class="tag coral">vacina atrasada</span>' : ''}${ic('chevron-right')}</a>`; }).join('')}
-  ${orc.length ? `<div class="secao"><h2>Orçamentos e cobranças</h2></div><div class="card">${orc.map(o => `<div class="item"><div class="grow"><b>${brl(totalItens(o.itens))}</b><div class="small muted">${dataCurta(o.data)} · ${esc(animal(o.animalId)?.nome || '')}</div></div>${tagOrc(o)}</div>`).join('')}</div>` : ''}
+  ${orc.length ? `<div class="secao"><h2>Orçamentos e cobranças</h2></div><div class="card">${orc.map(o => `<div class="item toca" ${tocavel(`editarOrc('${o.id}')`)}><div class="grow"><b>${brl(totalItens(o.itens))}</b><div class="small muted">${dataCurta(o.data)} · ${esc(animal(o.animalId)?.nome || '')}</div></div>${tagOrc(o)}</div>`).join('')}</div>` : ''}
   </main>`;
 };
 const tagOrc = o => o.status === 'pago' ? `<span class="tag verde">pago · ${o.forma === 'cartao' ? 'cartão' : 'Pix'}</span>` : o.status === 'aprovado' ? '<span class="tag azul">aprovado · a receber</span>' : '<span class="tag ambar">enviado ao tutor</span>';
@@ -460,13 +775,13 @@ function novoAnimal(tid) {
     <div class="grid2"><div><label for="naN">Nome</label><input id="naN"></div><div><label for="naE">Espécie</label><select id="naE"><option>Cão</option><option>Gato</option></select></div></div>
     <div class="grid2"><div><label for="naR">Raça</label><input id="naR"></div><div><label for="naS">Sexo</label><select id="naS"><option>Macho</option><option>Fêmea</option></select></div></div>
     <div class="grid2"><div><label for="naD">Nascimento</label><input type="date" id="naD"></div><div><label for="naP">Peso (kg)</label><input id="naP" inputmode="decimal"></div></div>
-    <button class="btn full" style="margin-top:16px" onclick="salvarAnimal('${tid}')">Cadastrar</button>`);
+    <button class="btn full" style="margin-top:16px" onclick="salvarAnimal('${tid}')">Cadastrar</button>`, 'animal_' + tid);
 }
 function salvarAnimal(tid) {
   if (!$('#naN').value.trim()) return toast('Falta o nome');
   const kg = parseFloat(($('#naP').value || '').replace(',', '.'));
   const a = { id: uid('a'), tutorId: tid, nome: $('#naN').value.trim(), especie: $('#naE').value, raca: $('#naR').value || 'SRD', sexo: $('#naS').value, castrado: false, nasc: $('#naD').value || isoHoje(), pesos: kg ? [{ data: isoHoje(), kg }] : [], checkup: null };
-  DB.animais.push(a); salvar(); fecharFolha(); go('/animal/' + a.id);
+  DB.animais.push(a); salvar(); rascFolhaLimpar(); fecharFolha(); go('/animal/' + a.id);
 }
 
 /* ---- Animal ---- */
@@ -478,25 +793,26 @@ TELAS.animal = id => {
   const ats = DB.atendimentos.filter(x => x.animalId === id).sort((x, y) => y.data.localeCompare(x.data));
   const rs = DB.receitas.filter(x => x.animalId === id);
   const tempo = [
-    ...vs.filter(v => v.status === 'aplicada').map(v => ({ d: v.data, ic: 'syringe', t: `Vacina ${v.vacina}${v.total > 1 ? ' · dose ' + v.n + '/' + v.total : ''}`, s: v.lote ? 'lote ' + v.lote : '' })),
-    ...ats.map(x => ({ d: x.data, ic: 'stethoscope', t: x.tipo, s: x.resumo })),
-    ...rs.map(x => ({ d: x.data, ic: 'file-text', t: x.tipo === 'controle' ? 'Receita de controle especial nº ' + x.numero : 'Receita', s: x.itens.map(i => i.med).join(', ') })),
-    ...a.pesos.map(p => ({ d: p.data, ic: 'scale', t: 'Peso ' + vg(p.kg) + ' kg', s: '' })),
+    ...vs.filter(v => v.status === 'aplicada').map(v => ({ d: v.data, ic: 'syringe', t: `Vacina ${v.vacina}${v.total > 1 ? ' · dose ' + v.n + '/' + v.total : ''}`, s: v.lote ? 'lote ' + v.lote : '', on: `editarDose('${v.id}')` })),
+    ...ats.map(x => ({ d: x.data, ic: 'stethoscope', t: x.tipo, s: x.resumo, on: `editarAtendimento('${x.id}')` })),
+    ...rs.map(x => ({ d: x.data, ic: 'file-text', t: x.tipo === 'controle' ? 'Receita de controle especial nº ' + x.numero : 'Receita', s: x.itens.map(i => i.med).join(', '), on: `editarReceita('${x.id}')` })),
+    ...a.pesos.map((p, pi) => ({ d: p.data, ic: 'scale', t: 'Peso ' + vg(p.kg) + ' kg', s: '', on: `editarPeso('${id}',${pi})` })),
   ].sort((x, y) => y.d.localeCompare(x.d));
   // cuidados pendentes, sempre à vista
   const cuid = proximasDoses(id, 30).map(v => { const s = statusDose(v); return `<div class="cuidado ${s.k === 'atrasada' ? 'coral' : ''}">${ic('syringe', 'sm')}<span class="grow"><b>${esc(v.vacina)}${v.total > 1 ? ' ' + v.n + '/' + v.total : ''}</b> · ${s.txt}</span><button class="btn mini" onclick="aplicarVacina('${id}','${v.id}')">Aplicar</button></div>`; });
   if (a.checkup && diasAte(a.checkup) <= 30) cuid.push(`<div class="cuidado azul">${ic('clipboard-list', 'sm')}<span class="grow"><b>Check-up</b> · ${diasAte(a.checkup) < 0 ? 'passou ' + quando(a.checkup) : quando(a.checkup)}</span><button class="btn mini" onclick="novoHorario({animalId:'${id}',servico:'s3'})">Marcar</button></div>`);
   const abas = [['tempo', 'Histórico'], ['vacinas', 'Vacinas'], ['atend', 'Consultas'], ['peso', 'Peso']];
   let corpo = '';
-  if (abaAnimal === 'tempo') corpo = tempo.length ? tempo.map(e => `<div class="item"><div class="ava" style="background:var(--lil-3)">${ic(e.ic)}</div><div class="grow"><b>${esc(e.t)}</b><div class="small muted">${dataCurta(e.d)}${e.s ? ' · ' + esc(e.s) : ''}</div></div></div>`).join('') : '<p class="muted" style="margin:0">Nada registrado ainda.</p>';
-  if (abaAnimal === 'vacinas') corpo = (vs.length ? vs.map(v => { const s = statusDose(v); return `<div class="item"><div class="grow"><b>${esc(v.vacina)}</b> <span class="muted small">${v.total > 1 ? 'dose ' + v.n + '/' + v.total + ' · ' : ''}${v.protocolo === 'filhote' ? 'protocolo filhote' : 'anual'}</span><div class="small muted">${dataCurta(v.data)}${v.lote ? ' · lote ' + esc(v.lote) : ''}</div></div><span class="tag ${s.cls}">${s.txt}</span></div>`; }).join('') : '<p class="muted" style="margin:0">Sem vacinas.</p>') +
+  if (abaAnimal === 'tempo') corpo = tempo.length ? tempo.map(e => `<div class="item toca" ${tocavel(e.on)}><div class="ava" style="background:var(--lil-3)">${ic(e.ic)}</div><div class="grow"><b>${esc(e.t)}</b><div class="small muted">${dataCurta(e.d)}${e.s ? ' · ' + esc(e.s) : ''}</div></div></div>`).join('') : '<p class="muted" style="margin:0">Nada registrado ainda.</p>';
+  if (abaAnimal === 'vacinas') corpo = (vs.length ? vs.map(v => { const s = statusDose(v); return `<div class="item toca" ${tocavel(`editarDose('${v.id}')`)}><div class="grow"><b>${esc(v.vacina)}</b> <span class="muted small">${v.total > 1 ? 'dose ' + v.n + '/' + v.total + ' · ' : ''}${v.protocolo === 'filhote' ? 'protocolo filhote' : 'anual'}</span><div class="small muted">${dataCurta(v.data)}${v.lote ? ' · lote ' + esc(v.lote) : ''}</div></div><span class="tag ${s.cls}">${s.txt}</span></div>`; }).join('') : '<p class="muted" style="margin:0">Sem vacinas.</p>') +
     `<div class="row" style="margin-top:12px"><button class="btn mini" onclick="aplicarVacina('${id}')">Aplicar vacina</button><button class="btn mini ghost" onclick="iniciarProtocoloUI('${id}')">Iniciar protocolo</button></div>`;
-  if (abaAnimal === 'atend') corpo = ats.length ? ats.map(x => `<details><summary>${dataCurta(x.data)} · ${esc(x.tipo)}</summary><div><p style="margin-top:0">${esc(x.resumo)}</p>${Object.entries(x.campos || {}).filter(([, v]) => v).map(([k, v]) => `<div class="small"><b>${esc(ROTULO[k] || k)}:</b> ${esc(v)}</div>`).join('')}</div></details>`).join('') : '<p class="muted" style="margin:0">Nenhum atendimento.</p>';
-  if (abaAnimal === 'peso') { const mx = Math.max(...a.pesos.map(p => p.kg), 1); corpo = a.pesos.length ? a.pesos.map(p => `<div style="margin:10px 0"><div class="row between small"><span>${dataCurta(p.data)}</span><b>${vg(p.kg)} kg</b></div><div class="barra"><i style="width:${p.kg / mx * 100}%"></i></div></div>`).join('') : '<p class="muted" style="margin:0">Sem pesagens.</p>'; }
-  return barra(esc(a.nome), { voltar: '/tutor/' + t.id, sub: esc(t.nome) }) + `<main>
+  if (abaAnimal === 'atend') corpo = ats.length ? ats.map(x => `<details><summary>${dataCurta(x.data)} · ${esc(x.tipo)}</summary><div><p style="margin-top:0">${esc(x.resumo)}</p><button class="btn mini ghost editar" style="margin-bottom:8px" onclick="editarAtendimento('${x.id}')">${ic('pencil', 'sm')} Editar</button>${Object.entries(x.campos || {}).filter(([, v]) => v).map(([k, v]) => `<div class="small"><b>${esc(ROTULO[k] || k)}:</b> ${esc(v)}</div>`).join('')}</div></details>`).join('') : '<p class="muted" style="margin:0">Nenhum atendimento.</p>';
+  if (abaAnimal === 'peso') { const mx = Math.max(...a.pesos.map(p => p.kg), 1); corpo = a.pesos.length ? a.pesos.map((p, pi) => `<div class="toca" ${tocavel(`editarPeso('${id}',${pi})`)} style="margin:10px 0"><div class="row between small"><span>${dataCurta(p.data)}</span><b>${vg(p.kg)} kg</b></div><div class="barra"><i style="width:${p.kg / mx * 100}%"></i></div></div>`).join('') : '<p class="muted" style="margin:0">Sem pesagens.</p>'; }
+  return barra(esc(a.nome), { voltar: '/tutor/' + t.id, sub: esc(t.nome), acoes: acaoBtn('pencil', 'Editar animal', `editarAnimal('${id}')`) }) + `<main>
   <div class="card"><div class="row">${avatar(a, 'xl')}<div class="grow"><h2 style="font-size:20px">${esc(a.nome)}</h2>
     <div class="small muted">${esc(a.especie)} · ${esc(a.raca)} · ${esc(a.sexo)}${a.castrado ? ' · castrado(a)' : ''}</div>
-    <div class="small"><b>${idade(a.nasc)}</b>${pesoAtual(a) ? ' · <b>' + vg(pesoAtual(a)) + ' kg</b>' : ''}</div></div></div>
+    <div class="small"><b>${idade(a.nasc)}</b>${pesoAtual(a) ? ' · <b>' + vg(pesoAtual(a)) + ' kg</b>' : ''}</div>${a.obs ? `<div class="small" style="margin-top:4px">${esc(a.obs)}</div>` : ''}
+    <button class="btn mini ghost editar" style="margin-top:6px" onclick="editarAnimal('${id}')">${ic('pencil', 'sm')} Editar dados</button></div></div>
     ${cuid.length ? cuid.join('') : `<div class="cuidado" style="background:var(--verde-2);color:var(--verde)">${ic('check', 'sm')}<span class="grow">Vacinas e check-up em dia</span></div>`}
   </div>
   <div class="acoes" style="margin-top:12px"><a class="btn" href="#/atender/${id}">${ic('stethoscope')}Atender</a><button class="btn sec" onclick="aplicarVacina('${id}')">${ic('syringe')}Vacina</button><a class="btn sec" href="#/receita/${id}">${ic('file-text')}Receita</a><a class="btn sec" href="#/doses/${id}">${ic('scale')}Dose</a></div>
@@ -505,7 +821,7 @@ TELAS.animal = id => {
 };
 
 /* ---- Vacinas: protocolo gera as doses ---- */
-function vacinasDaEspecie(a) { return DB.tabela.filter(t => t.vacina && (t.especie === 'Ambos' || t.especie === a.especie)); }
+function vacinasDaEspecie(a) { return tabAtiva().filter(t => t.vacina && (t.especie === 'Ambos' || t.especie === a.especie)); }
 function iniciarProtocolo(animalId, vacina, protId, data1) {
   const p = DB.protocolos.find(x => x.id === protId);
   for (let i = 0; i < p.doses; i++) DB.doses.push({ id: uid('v'), animalId, vacina, protocolo: protId, n: i + 1, total: p.doses, data: isoMais(data1, i * p.intervalo), status: 'programada', lote: '' });
@@ -569,11 +885,11 @@ TELAS.atender = (id, gid) => {
   const a = animal(id); if (!a) return barra('Atender', { voltar: '/clientes' }) + '<main>Animal não encontrado.</main>';
   const t = tutor(a.tutorId), g = gid ? DB.agenda.find(x => x.id === gid) : null;
   const pend = proximasDoses(id, 30);
-  const servicos = DB.tabela.filter(x => x.cat === 'Serviços');
+  const servicos = tabAtiva().filter(x => x.cat === 'Serviços');
   const marcado = s => g ? (g.servico === s.id || (g.extras || []).includes(s.id)) : s.id === 's1';
   const tipoIni = g && g.servico === 's3' ? 'Check-up (avaliação periódica)' : g && tab(g.servico)?.vacina ? 'Vacinação' : 'Consulta domiciliar';
   return barra(`Atender ${esc(a.nome)}`, { voltar: '/animal/' + id, sub: `${esc(t.nome)} · ${esc(t.bairro)}` }) + `<main class="com-cta" id="formAt">
-  <label for="atTipo">Tipo de atendimento</label><select id="atTipo">${['Consulta domiciliar', 'Check-up (avaliação periódica)', 'Vacinação', 'Retorno'].map(x => `<option ${x === tipoIni ? 'selected' : ''}>${x}</option>`).join('')}</select>
+  <label for="atTipo">Tipo de atendimento</label><select id="atTipo">${TIPOS_AT.map(x => `<option ${x === tipoIni ? 'selected' : ''}>${x}</option>`).join('')}</select>
 
   <div class="secao"><h2>Sinais vitais</h2></div>
   <div class="card"><div class="grid3" style="margin-top:-12px">${VITAIS.map(c => `<div><label for="f_${c}">${ROTULO[c]}</label><input id="f_${c}" data-campo="${c}" inputmode="decimal"></div>`).join('')}</div></div>
@@ -594,6 +910,10 @@ TELAS.atender = (id, gid) => {
   <div class="card">
     ${servicos.map(s => `<label class="preco-lin"><input type="checkbox" data-item="${s.id}" ${marcado(s) ? 'checked' : ''}><span>${esc(s.nome)} ${s.exemplo ? '<span class="exemplo">exemplo</span>' : ''}</span><b>${brl(s.preco)}</b></label>`).join('')}
     <label class="preco-lin"><input type="checkbox" data-item="${t.faixa}" checked><span>${esc(tab(t.faixa)?.nome || 'Deslocamento')} <span class="exemplo">exemplo</span></span><b>${brl(tab(t.faixa)?.preco)}</b></label>
+    <div id="atExtras"></div>
+    <label for="atAdd" style="margin-top:12px">Exame, procedimento, medicação…</label>
+    <select id="atAdd"><option value="">+ Adicionar da tabela de valores</option>${catsTabela().filter(c => !['Serviços', 'Deslocamento', 'Vacinas'].includes(c)).map(c => { const it = tabAtiva().filter(x => x.cat === c); return it.length ? `<optgroup label="${esc(c)}">${it.map(x => `<option value="${x.id}">${esc(x.nome)} · ${brl(x.preco)}${x.unidade ? ' por ' + esc(x.unidade) : ''}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>
+    <p class="tiny muted" style="margin:6px 0 0">Não achou? Crie em Mais → Tabela de valores.</p>
   </div>
   <p class="tiny muted" style="text-align:center;margin-top:14px">O rascunho se guarda sozinho neste aparelho enquanto você preenche.</p>
   </main>
@@ -607,6 +927,13 @@ function marcarSist(c, estado) {
   const inp = el.querySelector('[data-alt]'); inp.hidden = el.dataset.estado !== 'alt'; if (!inp.hidden) inp.focus();
   guardarRascunho();
 }
+function atAddExtra(id, qtd = 1) {
+  const t = tab(id); if (!t) return;
+  const ja = document.querySelector(`[data-qtd="${id}"]`);
+  if (ja) { ja.value = vg((numBR(ja.value) || 0) + 1); return; }
+  $('#atExtras').insertAdjacentHTML('beforeend', `<label class="preco-lin" data-extra="${id}"><input type="checkbox" data-item="${id}" checked><span>${esc(t.nome)}${t.unidade ? ' <span class="small muted">· por ' + esc(t.unidade) + '</span>' : ''}</span>
+    <input data-qtd="${id}" value="${vg(qtd)}" inputmode="decimal" aria-label="Quantidade de ${esc(t.nome)}" style="width:58px;text-align:center;padding:6px"><b>${brl(t.preco)}</b></label>`);
+}
 function tudoNormal() { SISTEMAS.forEach(c => { const el = document.querySelector(`[data-sist="${c}"]`); if (!el.dataset.estado) marcarSist(c, 'ok'); }); }
 let rascId = null;
 function lerForm() {
@@ -614,6 +941,8 @@ function lerForm() {
   document.querySelectorAll('[data-campo]').forEach(e => { if (e.value.trim()) r.campos[e.dataset.campo] = e.value.trim(); });
   document.querySelectorAll('[data-sist]').forEach(e => { if (e.dataset.estado) r.sist[e.dataset.sist] = [e.dataset.estado, e.querySelector('[data-alt]').value.trim()]; });
   document.querySelectorAll('[data-item]:checked').forEach(c => r.itens.push(c.dataset.item));
+  r.qtd = {}; document.querySelectorAll('[data-qtd]').forEach(q => { const n = numBR(q.value); if (n > 0) r.qtd[q.dataset.qtd] = n; });
+  r.extras = [...document.querySelectorAll('[data-extra]')].map(e => e.dataset.extra);
   document.querySelectorAll('[data-dose]:checked').forEach(c => r.doses.push(c.dataset.dose));
   return r;
 }
@@ -622,14 +951,15 @@ TELAS.atender.depois = (id) => {
   rascId = id;
   const soma = () => {
     let s = 0;
-    document.querySelectorAll('[data-item]').forEach(c => { if (c.checked) s += tab(c.dataset.item)?.preco || 0; });
+    document.querySelectorAll('[data-item]').forEach(c => { if (!c.checked) return; const q = document.querySelector(`[data-qtd="${c.dataset.item}"]`); s += (tab(c.dataset.item)?.preco || 0) * (q ? (numBR(q.value) || 1) : 1); });
     document.querySelectorAll('[data-dose]').forEach(c => { if (c.checked) { const v = DB.doses.find(d => d.id === c.dataset.dose); s += DB.tabela.find(x => x.vacina === v.vacina)?.preco || 0; } });
     $('#atTotal').textContent = brl(s);
   };
   // recupera o rascunho, se houver
   let r = null; try { r = JSON.parse(localStorage.getItem(RASC_K + id)); } catch (e) { }
-  if (r && (Object.keys(r.campos).length || Object.keys(r.sist).length)) {
+  if (r && (Object.keys(r.campos).length || Object.keys(r.sist).length || (r.extras || []).length)) {
     $('#atTipo').value = r.tipo;
+    (r.extras || []).forEach(x => atAddExtra(x, (r.qtd || {})[x] || 1));
     Object.entries(r.campos).forEach(([k, v]) => { const e = document.querySelector(`[data-campo="${k}"]`); if (e) e.value = v; });
     Object.entries(r.sist).forEach(([k, [est, txt]]) => { marcarSist(k, est); document.querySelector(`[data-alt="${k}"]`).value = txt; });
     document.querySelectorAll('[data-item]').forEach(c => c.checked = r.itens.includes(c.dataset.item));
@@ -637,6 +967,7 @@ TELAS.atender.depois = (id) => {
     if (Object.keys(r.campos).some(k => ANAMNESE.includes(k))) document.querySelector('details').open = true;
     toast('Rascunho recuperado', () => { localStorage.removeItem(RASC_K + id); route(); });
   }
+  $('#atAdd').addEventListener('change', e => { if (e.target.value) { atAddExtra(e.target.value); e.target.value = ''; soma(); guardarRascunho(); } });
   $('#formAt').addEventListener('input', () => { soma(); guardarRascunho(); });
   $('#formAt').addEventListener('change', () => { soma(); guardarRascunho(); });
   soma();
@@ -644,7 +975,7 @@ TELAS.atender.depois = (id) => {
 function salvarAtendimento(id, gid) {
   const a = animal(id), f = lerForm(), campos = { ...f.campos };
   SISTEMAS.forEach(c => { const s = f.sist[c]; if (s) campos[c] = s[0] === 'ok' ? 'Normal' : (s[1] || 'Alterado'); });
-  const itens = f.itens.map(t => ({ tab: t, qtd: 1 }));
+  const itens = f.itens.map(t => ({ tab: t, qtd: (f.qtd && f.qtd[t]) || 1 }));
   const foto = JSON.stringify(DB);
   const vacs = [];
   f.doses.forEach(did => {
@@ -668,13 +999,13 @@ function salvarAtendimento(id, gid) {
   desfazVisita = foto;
   const t = tutor(a.tutorId);
   const msg = MODO_REAL
-    ? `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nResumo da visita do ${a.nome}:\n` + itens.map(i => `• ${tab(i.tab)?.nome} — ${brl(tab(i.tab)?.preco)}`).join('\n') + `\nTotal: ${brl(totalItens(itens))}\nPode pagar por Pix${DB.cfg.pix ? ' (chave ' + DB.cfg.pix + ')' : ''} ou cartão. Dra. Ingrid 🐾`
+    ? `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nResumo da visita do ${a.nome}:\n` + itens.map(i => `• ${tab(i.tab)?.nome}${qtdItem(i) > 1 ? ' ×' + qtdItem(i) : ''} — ${brl(precoItem(i) * qtdItem(i))}`).join('\n') + `\nTotal: ${brl(totalItens(itens))}\nPode pagar por Pix${DB.cfg.pix ? ' (chave ' + DB.cfg.pix + ')' : ''} ou cartão. Dra. Ingrid 🐾`
     : `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nAqui está o resumo da visita do ${a.nome}, com os valores e as formas de pagamento (Pix ou cartão):\n${linkApp('/t/orcamento/' + o.id)}`;
   abaAnimal = 'tempo';
   go('/animal/' + id);
   setTimeout(() => {
     abrirFolha(`<h2>Visita finalizada</h2><p class="muted">Total ${brl(totalItens(itens))}${vacs.length ? ' · vacinas baixadas do estoque' : ''}</p>
-      <div class="stack" style="margin-top:12px"><a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg)}">${ic('message-circle')} Mandar resumo e valores no WhatsApp</a>
+      <div class="stack" style="margin-top:12px"><a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg, t.fone)}">${ic('message-circle')} Mandar resumo e valores no WhatsApp</a>
       ${MODO_REAL ? '' : `<a class="btn sec full" href="#/t/orcamento/${o.id}">${ic('eye')} Ver o que o tutor recebe</a>`}
       <button class="btn ghost full" onclick="DB=JSON.parse(desfazVisita);salvar();fecharFolha();route();toast('Visita desfeita')">${ic('undo-2')} Desfazer</button></div>`);
   }, 30);
@@ -748,7 +1079,7 @@ TELAS.doses = animalId => {
     <div id="dsR" style="margin-top:14px" aria-live="polite"></div>
   </div>
   <div class="secao"><h2>Lista de medicamentos</h2><button class="btn mini ghost" onclick="novoRemedio()">${ic('plus', 'sm')} Medicamento</button></div>
-  <div class="card">${DB.formulario.map(f => `<div class="item"><div class="ava" style="background:var(--lil-3)">${ic('pill')}</div><div class="grow"><b>${esc(f.nome)}</b><div class="small muted">${esc(f.classe)} · ${esc(f.receita)}</div><div class="tiny muted">Conferido em ${dataCurta(f.conferido)}/${f.conferido.slice(0, 4)} · <a href="${esc(f.fonte)}" target="_blank" rel="noopener">bula no VetSmart</a></div></div></div>`).join('')}</div>
+  <div class="card">${DB.formulario.map((f, fi) => `<div class="item toca" ${tocavel(`editarRemedio(${fi})`)}><div class="ava" style="background:var(--lil-3)">${ic('pill')}</div><div class="grow"><b>${esc(f.nome)}</b><div class="small muted">${esc(f.classe)} · ${esc(f.receita)}</div><div class="tiny muted">Conferido em ${dataCurta(f.conferido)}/${f.conferido.slice(0, 4)} · <a href="${esc(f.fonte)}" target="_blank" rel="noopener">bula no VetSmart</a></div></div></div>`).join('')}</div>
   <div class="aviso lil small" style="margin-top:12px">Remédio que não está na lista <b>não tem dose</b> no app nem no assistente — nada é inventado. Cadastre cada um com o link da bula e a data em que conferiu.</div>
   </main>`;
 };
@@ -773,7 +1104,7 @@ function novoRemedio() {
     <div class="grid3"><div><label for="nrC1">Cão mín. mg/kg</label><input id="nrC1" inputmode="decimal"></div><div><label for="nrC2">Cão máx.</label><input id="nrC2" inputmode="decimal"></div><div><label for="nrC3">Duração</label><input id="nrC3"></div></div>
     <div class="grid3"><div><label for="nrG1">Gato mín. mg/kg</label><input id="nrG1" inputmode="decimal"></div><div><label for="nrG2">Gato máx.</label><input id="nrG2" inputmode="decimal"></div><div><label for="nrG3">Duração</label><input id="nrG3"></div></div>
     <label for="nrL">Link da bula (VetSmart)</label><input id="nrL" type="url" placeholder="https://vetsmart.com.br/cg/produto/...">
-    <button class="btn full" style="margin-top:16px" onclick="salvarRemedio()">Guardar</button>`);
+    <button class="btn full" style="margin-top:16px" onclick="salvarRemedio()">Guardar</button>`, 'remedio');
 }
 function salvarRemedio() {
   const n = v => parseFloat(($(v).value || '').replace(',', '.'));
@@ -783,7 +1114,7 @@ function salvarRemedio() {
   if (n('#nrC1')) doses['Cão'] = { min: n('#nrC1'), max: n('#nrC2') || n('#nrC1'), duracao: $('#nrC3').value || '—' };
   if (n('#nrG1')) doses['Gato'] = { min: n('#nrG1'), max: n('#nrG2') || n('#nrG1'), duracao: $('#nrG3').value || '—' };
   DB.formulario.push({ nome: $('#nrN').value.trim(), classe: $('#nrC').value, receita: $('#nrR').value, vias: $('#nrV').value, doses, fonte: $('#nrL').value.trim(), conferido: isoHoje() });
-  salvar(); fecharFolha(); route(); toast('Medicamento guardado');
+  salvar(); rascFolhaLimpar(); fecharFolha(); route(); toast('Medicamento guardado');
 }
 
 /* ---- Financeiro ---- */
@@ -799,7 +1130,7 @@ TELAS.financeiro = () => {
   const mx = Math.max(...Object.values(cats), 1);
   const pix = porForma('pix'), cartao = porForma('cartao');
   return barra('Financeiro', { voltar: '/mais', sub: 'O que entra e o que sai', acoes: acaoBtn('plus', 'Novo lançamento', 'novoLanc()') }) + `<main>
-  ${aberto.length ? `<div class="secao" style="margin-top:0"><h2>A receber<span class="cont">${aberto.length}</span></h2><b>${brl(aberto.reduce((s, o) => s + totalItens(o.itens), 0))}</b></div><div class="card">${aberto.map(o => `<div class="item"><div class="grow"><b>${brl(totalItens(o.itens))}</b> <span class="small muted">· ${esc(tutor(o.tutorId).nome)} · ${esc(animal(o.animalId).nome)}</span><div class="small">${tagOrc(o)}</div></div>
+  ${aberto.length ? `<div class="secao" style="margin-top:0"><h2>A receber<span class="cont">${aberto.length}</span></h2><b>${brl(aberto.reduce((s, o) => s + totalItens(o.itens), 0))}</b></div><div class="card">${aberto.map(o => `<div class="item"><div class="grow toca" ${tocavel(`editarOrc('${o.id}')`)}><b>${brl(totalItens(o.itens))}</b> <span class="small muted">· ${esc(tutor(o.tutorId).nome)} · ${esc(animal(o.animalId).nome)}</span><div class="small">${tagOrc(o)}</div></div>
     <button class="btn mini" onclick="receber('${o.id}')">Recebi</button></div>`).join('')}</div>` : ''}
   <div class="row between" style="margin-top:20px"><button class="icbtn fundo" aria-label="Mês anterior" onclick="mesFin=mesMais(mesFin,-1);route({manterScroll:true})">${ic('chevron-left')}</button><h2 style="text-transform:capitalize">${MESES[m - 1]} ${y}</h2><button class="icbtn fundo" aria-label="Mês seguinte" onclick="mesFin=mesMais(mesFin,1);route({manterScroll:true})">${ic('chevron-right')}</button></div>
   <div class="kpis-grade" style="margin-top:12px"><div class="kpi"><b style="color:var(--verde)">${brl(ent)}</b><span>entrou</span></div><div class="kpi"><b style="color:var(--coral-f)">${brl(sai)}</b><span>saiu</span></div>
@@ -807,7 +1138,7 @@ TELAS.financeiro = () => {
   ${ent ? `<div class="secao"><h2>Como recebeu</h2></div><div class="card">${[['Pix', pix], ['Cartão', cartao]].map(([n, v]) => `<div style="margin:6px 0"><div class="row between small"><span>${n}</span><b>${brl(v)}</b></div><div class="barra"><i style="width:${v / ent * 100}%"></i></div></div>`).join('')}</div>` : ''}
   ${Object.keys(cats).length ? `<div class="secao"><h2>Entradas por tipo</h2></div><div class="card">${Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([c, v]) => `<div style="margin:8px 0"><div class="row between small"><span>${esc(c)}</span><b>${brl(v)}</b></div><div class="barra"><i style="width:${v / mx * 100}%"></i></div></div>`).join('')}</div>` : ''}
   <div class="secao"><h2>Lançamentos</h2></div>
-  <div class="card">${ls.length ? ls.map(l => `<div class="item"><div class="grow"><b>${esc(l.desc)}</b><div class="small muted">${dataCurta(l.data)} · ${esc(l.cat)} · ${l.forma === 'cartao' ? 'cartão' : l.forma === 'pix' ? 'Pix' : esc(l.forma)}</div></div><b style="color:${l.tipo === 'entrada' ? 'var(--verde)' : 'var(--coral-f)'};white-space:nowrap">${l.tipo === 'entrada' ? '+' : '−'} ${brl(l.valor)}</b></div>`).join('') : '<p class="muted" style="margin:0">Nada neste mês.</p>'}</div>
+  <div class="card">${ls.length ? ls.map(l => `<div class="item toca" ${tocavel(`editarLanc('${l.id}')`)}><div class="grow"><b>${esc(l.desc)}</b><div class="small muted">${dataCurta(l.data)} · ${esc(l.cat)} · ${l.forma === 'cartao' ? 'cartão' : l.forma === 'pix' ? 'Pix' : esc(l.forma)}</div></div><b style="color:${l.tipo === 'entrada' ? 'var(--verde)' : 'var(--coral-f)'};white-space:nowrap">${l.tipo === 'entrada' ? '+' : '−'} ${brl(l.valor)}</b></div>`).join('') : '<p class="muted" style="margin:0">Nada neste mês.</p>'}</div>
   </main>`;
 };
 function receber(oid) {
@@ -816,7 +1147,7 @@ function receber(oid) {
 function baixarOrcDados(oid, forma) {
   const o = DB.orcamentos.find(x => x.id === oid); o.status = 'pago'; o.forma = forma;
   const a = animal(o.animalId);
-  o.itens.forEach(i => { const t = tab(i.tab); if (t) DB.lanc.push({ id: uid('f'), data: isoHoje(), tipo: 'entrada', cat: t.cat === 'Serviços' ? 'Consultas' : t.cat, desc: t.nome + ' — ' + a.nome, valor: t.preco * (i.qtd || 1), forma }); });
+  o.itens.forEach(i => { const t = tab(i.tab); if (t) DB.lanc.push({ id: uid('f'), data: isoHoje(), tipo: 'entrada', cat: t.cat === 'Serviços' ? 'Consultas' : t.cat, desc: t.nome + ' — ' + a.nome, valor: precoItem(i) * qtdItem(i), forma }); });
 }
 function baixarOrc(oid, forma) { fecharFolha(); comDesfazer('Recebido · entrou no financeiro', () => baixarOrcDados(oid, forma)); route({ manterScroll: true }); }
 function novoLanc() {
@@ -825,14 +1156,14 @@ function novoLanc() {
     <label for="nlD">Descrição</label><input id="nlD" placeholder="Ex.: Combustível">
     <div class="grid2"><div><label for="nlV">Valor (R$)</label><input id="nlV" inputmode="decimal"></div><div><label for="nlC">Categoria</label><select id="nlC"><option>Combustível</option><option>Compra de vacinas</option><option>Medicamentos</option><option>Insumos</option><option>Consultas</option><option>Outros</option></select></div></div>
     <label for="nlF">Forma</label><select id="nlF"><option value="pix">Pix</option><option value="cartao">Cartão</option><option value="dinheiro">Dinheiro</option></select>
-    <button class="btn full" style="margin-top:16px" onclick="salvarLanc()">Lançar</button>`);
+    <button class="btn full" style="margin-top:16px" onclick="salvarLanc()">Lançar</button>`, 'lanc');
   $('#nlT').addEventListener('click', e => { if (e.target.dataset.t) document.querySelectorAll('#nlT button').forEach(b => b.classList.toggle('on', b === e.target)); });
 }
 function salvarLanc() {
   const v = parseFloat(($('#nlV').value || '').replace(/\./g, '').replace(',', '.'));
   if (!v || !$('#nlD').value.trim()) return toast('Falta descrição ou valor');
   const l = { id: uid('f'), data: isoHoje(), tipo: $('#nlT .on').dataset.t, cat: $('#nlC').value, desc: $('#nlD').value.trim(), valor: v, forma: $('#nlF').value };
-  fecharFolha(); comDesfazer('Lançado', () => DB.lanc.push(l)); route({ manterScroll: true });
+  rascFolhaLimpar(); fecharFolha(); comDesfazer('Lançado', () => DB.lanc.push(l)); route({ manterScroll: true });
 }
 
 /* ---- Estoque ---- */
@@ -842,7 +1173,7 @@ TELAS.estoque = () => {
   return barra('Estoque', { voltar: '/mais', sub: 'Vacina aplicada na visita sai sozinha', acoes: acaoBtn('plus', 'Entrada no estoque', 'entradaEstoque()') }) + `<main>
   ${repor.length ? `<div class="aviso coral row between"><span><b>${repor.length}</b> ${repor.length === 1 ? 'item para repor' : 'itens para repor'}</span><button class="btn mini coral" onclick="listaCompras()">${ic('receipt', 'sm')} Lista de compras</button></div>` : ''}
   ${grupos.map(([g, titulo]) => { const it = DB.estoque.filter(e => e.tipo === g); return it.length ? `<div class="secao"><h2>${titulo}</h2></div><div class="card">${it.map(e => `
-    <div class="item"><div class="grow"><b>${esc(e.nome)}</b><div class="small muted">${e.lote ? 'lote ' + esc(e.lote) + ' · ' : ''}${e.validade ? 'validade ' + dataCurta(e.validade) : 'sem validade'} · mínimo ${e.min}</div>
+    <div class="item"><div class="grow toca" ${tocavel(`editarEstoque('${e.id}')`)}><b>${esc(e.nome)}</b><div class="small muted">${e.lote ? 'lote ' + esc(e.lote) + ' · ' : ''}${e.validade ? 'validade ' + dataCurta(e.validade) : 'sem validade'} · mínimo ${e.min}</div>
       <div class="row wrap" style="margin-top:4px">${e.qtd <= e.min ? '<span class="tag coral">repor</span>' : ''}${e.validade && diasAte(e.validade) <= 30 ? `<span class="tag ambar">vence ${quando(e.validade)}</span>` : ''}</div></div>
       <div class="row" style="gap:4px"><button class="icbtn fundo" aria-label="Tirar 1 ${esc(e.nome)}" onclick="ajEst('${e.id}',-1)">${ic('minus')}</button><b style="min-width:30px;text-align:center;font-size:18px" aria-live="polite">${e.qtd}</b><button class="icbtn fundo" aria-label="Pôr 1 ${esc(e.nome)}" onclick="ajEst('${e.id}',1)">${ic('plus')}</button></div></div>`).join('')}</div>` : ''; }).join('')}
   </main>`;
@@ -862,14 +1193,14 @@ function entradaEstoque() {
     <div class="grid2"><div><label for="eeL">Lote</label><input id="eeL"></div><div><label for="eeV">Validade</label><input type="date" id="eeV"></div></div>
     <div class="grid2"><div><label for="eeC">Custo unitário</label><input id="eeC" inputmode="decimal"></div><div><label for="eeM">Mínimo</label><input id="eeM" inputmode="numeric" value="2"></div></div>
     <label class="row" style="color:var(--tinta);font-weight:500"><input type="checkbox" id="eeF" checked> Lançar a compra como saída no financeiro</label>
-    <button class="btn full" style="margin-top:16px" onclick="salvarEntrada()">Guardar</button>`);
+    <button class="btn full" style="margin-top:16px" onclick="salvarEntrada()">Guardar</button>`, 'estoque');
 }
 function salvarEntrada() {
   const q = parseInt($('#eeQ').value, 10), c = parseFloat(($('#eeC').value || '0').replace(',', '.'));
   if (!$('#eeN').value.trim() || !q) return toast('Falta item ou quantidade');
   const it = { id: uid('e'), nome: $('#eeN').value.trim(), tipo: $('#eeT').value, lote: $('#eeL').value, validade: $('#eeV').value, qtd: q, min: parseInt($('#eeM').value, 10) || 0, custo: c };
   const lanc = $('#eeF').checked && c;
-  fecharFolha();
+  rascFolhaLimpar(); fecharFolha();
   comDesfazer('Entrada guardada', () => {
     DB.estoque.push(it);
     if (lanc) DB.lanc.push({ id: uid('f'), data: isoHoje(), tipo: 'saida', cat: it.tipo === 'Vacina' ? 'Compra de vacinas' : it.tipo === 'Medicamento' ? 'Medicamentos' : 'Insumos', desc: q + '× ' + it.nome, valor: q * c, forma: 'pix' });
@@ -878,7 +1209,43 @@ function salvarEntrada() {
 }
 
 /* ---- Assistente: pergunta E faz (sempre com cartão de confirmação) ---- */
-let conversa = [];
+const CONV_K = DB_K + '_conversa';
+let conversa = (() => { try { return (JSON.parse(localStorage.getItem(CONV_K)) || []).map(m => ({ ...m, carregando: false })); } catch (e) { return []; } })();   // a conversa sobrevive a fechar o app
+function guardarConversa() { try { localStorage.setItem(CONV_K, JSON.stringify(conversa.slice(-40))); } catch (e) { } }
+function limparConversa() {
+  const antes = conversa.slice(); conversa.length = 0; guardarConversa(); route();
+  toast('Conversa limpa', () => { conversa.push(...antes); guardarConversa(); route(); });
+}
+/* campos que ela pode mudar no cartão antes de confirmar */
+function camposCartao(ac) {
+  const d = ac.dados || {};
+  if (ac.tipo === 'marcar') return [
+    { k: 'animalId', rot: 'Animal', tipo: 'select', ops: opsAnimais() },
+    { k: 'servico', rot: 'Serviço', tipo: 'select', ops: opsServicos() },
+    { k: 'data', rot: 'Dia', tipo: 'date', obrig: true, meia: true }, { k: 'hora', rot: 'Hora', tipo: 'time', obrig: true, meia: true },
+    { k: 'obs', rot: 'Observação' }];
+  if (ac.tipo === 'peso') return [{ k: 'kg', rot: 'Peso (kg)', tipo: 'num', obrig: true }];
+  if (ac.tipo === 'vacina') { const a = animal(d.animalId); return a ? [
+    { k: 'escolha', rot: 'Vacina', tipo: 'select', ops: [...proximasDoses(a.id).map(v => ['dose:' + v.id, `${v.vacina}${v.total > 1 ? ' ' + v.n + '/' + v.total : ''} — ${statusDose(v).txt}`]), ...vacinasDaEspecie(a).map(t => ['nova:' + t.vacina, t.vacina + ' — nova (anual)'])] },
+    { k: 'estoqueId', rot: 'Lote do estoque', tipo: 'select', ops: [['', 'Sem baixa no estoque'], ...DB.estoque.filter(e => e.tipo === 'Vacina').map(e => [e.id, `${e.nome} · lote ${e.lote} · ${e.qtd} un.`])] }] : []; }
+  if (ac.tipo === 'pagou') return [{ k: 'forma', rot: 'Como recebeu', tipo: 'select', ops: [['pix', 'Pix'], ['cartao', 'Cartão']] }];
+  if (ac.tipo === 'cadastro') return [
+    { k: 'tutor.nome', rot: 'Nome do tutor', obrig: true },
+    { k: 'tutor.fone', rot: 'WhatsApp', tipo: 'tel', meia: true }, { k: 'tutor.bairro', rot: 'Bairro', meia: true },
+    { k: 'tutor.endereco', rot: 'Endereço' },
+    { k: 'animal.nome', rot: 'Nome do animal', meia: true }, { k: 'animal.especie', rot: 'Espécie', tipo: 'select', ops: ['Cão', 'Gato'], meia: true },
+    { k: 'animal.raca', rot: 'Raça' }];
+  if (ac.tipo === 'preco') return [{ k: 'preco', rot: 'Novo preço (R$)', tipo: 'num', obrig: true }];
+  if (ac.tipo === 'ajuste') return [{ k: 'texto', rot: 'O que mudar no app', tipo: 'area', obrig: true, linhas: 3 }];
+  return [];
+}
+function tituloCartao(ac) {
+  const d = ac.dados || {};
+  if (ac.tipo === 'marcar') { const a = animal(d.animalId); return `Marcar ${(tab(d.servico)?.nome || 'visita').toLowerCase()}${a ? ' · ' + a.nome : ''}`; }
+  if (ac.tipo === 'cadastro') return 'Cadastrar ' + ((d.tutor && d.tutor.nome) || 'tutor');
+  if (ac.tipo === 'peso') { const a = animal(d.animalId); return 'Registrar peso' + (a ? ' de ' + a.nome : ''); }
+  return ac.titulo;
+}
 const SUG_PERGUNTAR = ['Quem está com vacina atrasada?', 'Qual a agenda de amanhã?', 'Dose de meloxicam para cão de 12 kg', 'Quanto entrou este mês?', 'O que preciso repor?', 'Dose de dipirona para gato'];
 const SUG_FAZER = ['Agenda o Thor da Carla sexta às 10', 'Marca a Mia amanhã de manhã', 'Peso do Thor 33 kg', 'Pipoca tomou V8 hoje', 'Carla pagou no Pix'];
 function acharAnimal(nome) { const n = semAcento(nome); return DB.animais.find(a => semAcento(a.nome) === n); }
@@ -1026,6 +1393,8 @@ function escutarConfirmacao(i) {
 function executarAcao(i) {
   const c = conversa[i]; if (!c || c.estado !== 'pendente') return;
   const d = c.acao.dados;
+  const falta = camposCartao(c.acao).find(f => f.obrig && (pegar(d, f.k) == null || String(pegar(d, f.k)).trim() === ''));
+  if (falta) return toast('Preencha no cartão: ' + falta.rot);
   comDesfazer('Feito no app', () => {
     if (c.acao.tipo === 'peso') animal(d.animalId).pesos.push({ data: isoHoje(), kg: d.kg });
     if (c.acao.tipo === 'vacina') {
@@ -1036,7 +1405,7 @@ function executarAcao(i) {
     if (c.acao.tipo === 'cadastro') {
       const t = { id: uid('t'), nome: d.tutor.nome, fone: d.tutor.fone || '', cpf: '', email: '', endereco: d.tutor.endereco || '', bairro: d.tutor.bairro || '', faixa: 'd1', origem: 'Assistente', desde: isoHoje() };
       DB.tutores.push(t);
-      if (d.animal) DB.animais.push({ id: uid('a'), tutorId: t.id, nome: d.animal.nome, especie: d.animal.especie, raca: d.animal.raca || 'SRD', sexo: '', castrado: false, nasc: '', pesos: [], checkup: null });
+      if (d.animal && (d.animal.nome || '').trim()) DB.animais.push({ id: uid('a'), tutorId: t.id, nome: d.animal.nome.trim(), especie: d.animal.especie || 'Cão', raca: d.animal.raca || 'SRD', sexo: '', castrado: false, nasc: '', pesos: [], checkup: null });
     }
     if (c.acao.tipo === 'preco') { const t = tab(d.id); if (t) { t.preco = d.preco; delete t.exemplo; } }
     if (c.acao.tipo === 'ajuste') (DB.ajustes = DB.ajustes || []).push({ id: uid('aj'), data: isoHoje(), texto: d.texto, status: 'novo' });
@@ -1085,15 +1454,27 @@ function responder(p) {
   if (t) { const an = DB.animais.filter(a => a.tutorId === t.id); return `${t.nome} — ${t.fone}, ${t.bairro}.\nAnimais: ${an.map(a => `${a.nome} (${a.raca}, ${idade(a.nasc)})`).join(', ')}.\nSituação: ${etapa(t).txt}.`; }
   return 'Neste protótipo eu respondo sobre vacinas, agenda, doses da sua lista, financeiro, estoque, check-ups e clientes pelo nome — e já faço: registrar peso, vacina aplicada, marcar visita e dar baixa em pagamento. Sempre mostro o que vai mudar antes.';
 }
-TELAS.assistente = () => barra('Assistente', { sub: 'Fale ou escreva — ele faz no app', acoes: acaoBtn(vozLigada ? 'volume-2' : 'volume-x', vozLigada ? 'Desligar a voz' : 'Ligar a voz', 'alternarVoz()') }) + `<main style="padding-bottom:calc(var(--rail-h) + 110px)">
+TELAS.assistente = () => barra('Assistente', { sub: 'Fale ou escreva — ele faz no app', acoes: (conversa.length ? acaoBtn('trash-2', 'Limpar conversa', 'limparConversa()') : '') + acaoBtn(vozLigada ? 'volume-2' : 'volume-x', vozLigada ? 'Desligar a voz' : 'Ligar a voz', 'alternarVoz()') }) + `<main style="padding-bottom:calc(var(--rail-h) + 110px)">
   <div class="aviso lil small">${MODO_REAL ? 'Assistente com IA (Claude). Ele consulta seus clientes, agenda e financeiro, e toda mudança vem num cartão para você confirmar. Dose, só da sua lista conferida no VetSmart.' : 'Demonstração: respostas montadas por regras sobre os dados de exemplo. No app real é a IA (Claude) — e <b>nunca inventa dose</b>: só usa a lista conferida no VetSmart.'}</div>
   <div class="chat" id="chat" style="margin-top:14px">${conversa.length ? conversa.map((m, i) => m.de === 'acao' ? `
-    <div class="acao ${m.estado !== 'pendente' ? 'feita' : ''}"><b>${esc(m.acao.titulo)}</b>${m.acao.itens.length ? `<ul class="small">${m.acao.itens.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    <div class="acao ${m.estado !== 'pendente' ? 'feita' : ''}"><b data-titulo="${i}">${esc(tituloCartao(m.acao))}</b>${m.acao.itens.length && !m.editado ? `<ul class="small">${m.acao.itens.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${(() => { const cs = m.estado === 'pendente' ? camposCartao(m.acao) : []; return cs.length ? `<div class="campos-grade" data-cartao="${i}">${cs.map(c => campoHTML(c, c.sep ? '' : pegar(m.acao.dados, c.k), 'c' + i + '_')).join('')}</div>` : ''; })()}
       ${m.estado === 'pendente' && m.acao.tipo !== 'nada' ? `<div class="row"><button class="btn mini" onclick="executarAcao(${i})">${ic('check', 'sm')} Confirmar</button><button class="btn mini ghost" onclick="cancelarAcao(${i})">Cancelar</button></div>` : m.estado === 'feito' ? `<span class="tag verde">${ic('check', 'sm')} feito no app</span>` : m.estado === 'cancelado' ? '<span class="tag cinza">cancelado</span>' : ''}</div>`
     : `<div class="msg ${m.de}${m.carregando ? ' carregando' : ''}" data-msg="${i}">${esc(m.t) || (m.carregando ? 'pensando…' : '')}</div>`).join('') : `<div class="msg ia">Oi, Ingrid! Posso responder sobre o seu dia e também fazer por você: registrar peso, vacina, marcar visita, dar baixa em pagamento. Eu sempre mostro o que vai mudar antes.</div>`}</div>
   <div class="secao"><h2>Perguntar</h2></div><div class="sugs">${SUG_PERGUNTAR.map(s => `<button onclick="perguntar(this.textContent)">${s}</button>`).join('')}</div>
   <div class="secao"><h2>Mandar fazer</h2></div><div class="sugs">${SUG_FAZER.map(s => `<button onclick="perguntar(this.textContent)">${s}</button>`).join('')}</div>
   </main><div class="chatbox"><form onsubmit="event.preventDefault();perguntar($('#chIn').value)"><button type="button" id="micAssist" class="btn mic-grande" aria-label="Falar com o assistente" onclick="falarComAssistente()">${ic('mic')}</button><input id="chIn" aria-label="Sua mensagem" placeholder="Toque no microfone e fale" autocomplete="off" class="grow"><button class="btn sec" aria-label="Enviar">${ic('send')}</button></form></div>`;
+
+TELAS.assistente.depois = () => {
+  guardarConversa();
+  document.querySelectorAll('[data-cartao]').forEach(el => {
+    const i = +el.dataset.cartao, m = conversa[i]; if (!m || m.de !== 'acao') return;
+    ligarCampos(el, camposCartao(m.acao), () => conversa[i] && conversa[i].acao.dados, () => {
+      conversa[i].editado = true; guardarConversa();
+      const b = document.querySelector(`[data-titulo="${i}"]`); if (b) b.textContent = tituloCartao(conversa[i].acao);
+      const ul = el.parentElement.querySelector('ul'); if (ul) ul.remove();
+    });
+  });
+};
 
 /* ---------- assistente com IA (Claude, pela função "assistente" no Supabase dela) ---------- */
 let iaOcupada = false;
@@ -1190,33 +1571,52 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
     <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.7 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.8 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 TELAS.adm = sub => {
   if (sub === 'tabela') {
-    const cats = [...new Set(DB.tabela.map(t => t.cat))];
-    return barra('Tabela de valores', { voltar: '/mais', sub: 'Orçamento e link do tutor usam estes preços' }) + `<main class="com-cta">
-    ${cats.map(c => `<div class="secao"><h2>${esc(c)}</h2></div><div class="card">${DB.tabela.filter(t => t.cat === c).map(t => `<div class="item"><div class="grow"><label for="p_${t.id}" style="margin:0;color:var(--tinta);font-size:15px;font-weight:700">${esc(t.nome)}</label> ${t.exemplo ? '<span class="exemplo">exemplo</span>' : '<span class="tag verde">valor da Ingrid</span>'}${t.especie ? `<div class="tiny muted">${esc(t.especie)}</div>` : ''}</div>
-      <div style="width:112px;position:relative"><span class="small muted" style="position:absolute;left:10px;top:50%;transform:translateY(-50%)">R$</span><input id="p_${t.id}" data-preco="${t.id}" value="${vg(t.preco)}" inputmode="decimal" style="text-align:right"></div></div>`).join('')}</div>`).join('')}
-    <div class="aviso small" style="margin-top:12px">Faltam os valores reais de consulta, retorno, check-up e deslocamento (por distância ou por bairro?).</div></main>
-    <div class="cta-fixa"><div class="in"><button class="btn full" onclick="salvarTabela()">${ic('check')} Salvar valores</button></div></div>`;
+    const ativos = tabAtiva(), arq = DB.tabela.filter(t => t.arquivado);
+    const cats = catsTabela().filter(c => CATS.includes(c) || ativos.some(t => t.cat === c));
+    const um = { 'Serviços': 'Serviço', 'Vacinas': 'Vacina', 'Exames': 'Exame', 'Procedimentos': 'Procedimento', 'Medicações': 'Medicação', 'Deslocamento': 'Faixa' };
+    return barra('Tabela de valores', { voltar: '/mais', sub: 'Toque no nome para editar · o preço salva sozinho', acoes: acaoBtn('plus', 'Novo item', "novoItemTabela('Exames')") }) + `<main>
+    <div class="salvo small" id="admOk" aria-live="polite">${ic('check', 'sm')} Tudo salvo</div>
+    ${cats.map(c => { const it = ativos.filter(t => t.cat === c); return `<div class="secao"><h2>${esc(c)}</h2><button class="btn mini ghost" onclick="novoItemTabela('${esc(c)}')">${ic('plus', 'sm')} ${um[c] || 'Item'}</button></div>
+    <div class="card">${it.length ? it.map(t => `<div class="item"><div class="grow toca" ${tocavel(`editarItemTabela('${t.id}')`)}><b>${esc(t.nome)}</b> ${t.exemplo ? '<span class="exemplo">exemplo</span>' : ''}
+      <div class="small muted">${t.unidade ? 'por ' + esc(t.unidade) + ' · ' : ''}${mostraAoTutor(t) ? 'aparece para o tutor' : 'só para você'} · <span class="editar">${ic('pencil', 'sm')} editar</span></div></div>
+      <div style="width:112px;position:relative;flex:none"><span class="small muted" style="position:absolute;left:10px;top:50%;transform:translateY(-50%)">R$</span><input id="p_${t.id}" data-preco="${t.id}" aria-label="Preço de ${esc(t.nome)}" value="${vg(t.preco)}" inputmode="decimal" style="text-align:right"></div></div>`).join('') : '<p class="small muted" style="margin:0">Nada ainda — toque em + para criar.</p>'}</div>`; }).join('')}
+    ${arq.length ? `<details style="margin-top:18px"><summary>Itens tirados da tabela (${arq.length})</summary><div class="card">${arq.map(t => `<div class="item"><div class="grow">${esc(t.nome)} <span class="small muted">· ${esc(t.cat)}</span></div><button class="btn mini ghost" onclick="comDesfazer('Voltou para a tabela',()=>{delete tab('${t.id}').arquivado});route({manterScroll:true})">Voltar</button></div>`).join('')}</div></details>` : ''}
+    <div class="aviso lil small" style="margin-top:14px">Tudo desta tabela aparece na cobrança da visita, na agenda e para o assistente. Só o que estiver marcado "aparece para o tutor" vai para o link de agendamento.</div></main>`;
   }
-  if (sub === 'protocolos') return barra('Protocolos de vacina', { voltar: '/mais' }) + `<main>
+  if (sub === 'protocolos') return barra('Protocolos de vacina', { voltar: '/mais', sub: 'Salva sozinho' }) + `<main><div class="salvo small" id="admOk" aria-live="polite">${ic('check', 'sm')} Tudo salvo</div>
     ${DB.protocolos.map(p => `<div class="card"><b>${esc(p.nome)}</b><div class="grid2"><div><label for="pd_${p.id}">Nº de doses</label><input id="pd_${p.id}" data-pd="${p.id}" value="${p.doses}" inputmode="numeric"></div><div><label for="pi_${p.id}">Intervalo (dias)</label><input id="pi_${p.id}" data-pi="${p.id}" value="${p.intervalo}" inputmode="numeric"></div></div>${p.id === 'filhote' ? '<div class="tiny muted" style="margin-top:6px">Depois da última dose, o app marca o reforço anual sozinho.</div>' : ''}</div>`).join('')}
     <div class="card"><b>Check-up (avaliação periódica)</b><label for="ckM">Lembrar o tutor a cada (meses)</label><input id="ckM" value="${DB.checkupMeses}" inputmode="numeric"></div>
-    <button class="btn full" style="margin-top:16px" onclick="salvarProtocolos()">Salvar</button>
     <div class="aviso small" style="margin-top:12px">Número de doses e intervalo do filhote são de exemplo (3 doses a cada 21 dias, como no SimplesVet). Confirmar com a Ingrid.</div></main>`;
-  if (sub === 'perfil') { const c = DB.cfg; return barra('Dados profissionais', { voltar: '/mais', sub: 'Aparecem nas receitas e no link do tutor' }) + `<main><div class="card">
+  if (sub === 'perfil') { const c = DB.cfg; return barra('Dados profissionais', { voltar: '/mais', sub: 'Aparecem nas receitas e no link do tutor' }) + `<main><div class="salvo small" id="admOk" aria-live="polite">${ic('check', 'sm')} Tudo salvo</div><div class="card">
     <label for="pfN" style="margin-top:0">Nome</label><input id="pfN" value="${esc(c.nome)}"><div class="grid2"><div><label for="pfC">CRMV</label><input id="pfC" value="${esc(c.crmv)}"></div><div><label for="pfM">Registro MAPA</label><input id="pfM" value="${esc(c.mapa)}" placeholder="ainda não tem"></div></div>
     <label for="pfW">WhatsApp</label><input id="pfW" value="${esc(c.whats)}" placeholder="falta" inputmode="tel"><label for="pfP">Chave Pix</label><input id="pfP" value="${esc(c.pix)}" placeholder="falta">
     <label for="pfG">Link de avaliação no Google</label><input id="pfG" type="url" value="${esc(c.google)}" placeholder="https://g.page/r/...">
     <label>Horário de atendimento (todos os dias)</label><div class="grid2"><input type="time" id="pfI" aria-label="Início" value="${c.horario.ini}"><input type="time" id="pfF" aria-label="Fim" value="${c.horario.fim}"></div>
-    <button class="btn full" style="margin-top:16px" onclick="salvarPerfil()">Salvar</button></div></main>`; }
+    </div></main>`; }
   return '<main>—</main>';
 };
-function salvarTabela() { document.querySelectorAll('[data-preco]').forEach(i => { const t = tab(i.dataset.preco), v = parseFloat(i.value.replace(/\./g, '').replace(',', '.')); if (!isNaN(v) && v !== t.preco) { t.preco = v; delete t.exemplo; } }); salvar(); route(); toast('Valores salvos'); }
-function salvarProtocolos() { DB.protocolos.forEach(p => { p.doses = parseInt($(`[data-pd="${p.id}"]`).value, 10) || p.doses; p.intervalo = parseInt($(`[data-pi="${p.id}"]`).value, 10) || p.intervalo; }); DB.checkupMeses = parseInt($('#ckM').value, 10) || 12; salvar(); route(); toast('Salvo'); }
-function salvarPerfil() { const c = DB.cfg; c.nome = $('#pfN').value; c.crmv = $('#pfC').value; c.mapa = $('#pfM').value; c.whats = $('#pfW').value; c.pix = $('#pfP').value; c.google = $('#pfG').value; c.horario.ini = $('#pfI').value; c.horario.fim = $('#pfF').value; salvar(); route(); toast('Salvo'); }
+TELAS.adm.depois = sub => {
+  const m = document.querySelector('#app main'); if (!m) return;
+  let t = null;
+  const grava = () => {
+    clearTimeout(t); t = null;
+    if (sub === 'tabela') gravarTabela(); else if (sub === 'protocolos') gravarProtocolos(); else if (sub === 'perfil') gravarPerfil();
+    salvar();
+    document.querySelectorAll('#app main input').forEach(i => { i.defaultValue = i.value; });   // não trava a sincronia
+    const ok = $('#admOk'); if (ok) { ok.classList.remove('salvando'); ok.innerHTML = ic('check', 'sm') + ' Salvo'; }
+  };
+  const mudou = e => {
+    if (!e.target.matches('input, select, textarea')) return;
+    const ok = $('#admOk'); if (ok) { ok.classList.add('salvando'); ok.textContent = 'Salvando…'; }
+    clearTimeout(t); t = setTimeout(grava, 600);
+  };
+  m.addEventListener('input', mudou); m.addEventListener('change', mudou);
+  window.addEventListener('hashchange', () => { if (t) grava(); }, { once: true });   // saiu da tela antes de gravar
+};
 
 TELAS.avaliacoes = () => {
   const av = DB.avaliacoes.slice().sort((a, b) => b.data.localeCompare(a.data)), media = av.length ? av.reduce((s, a) => s + a.nota, 0) / av.length : 0;
@@ -1246,7 +1646,7 @@ TUTOR.home = () => {
   ${pedidos.map(g => `<div class="card"><div class="small muted">Visita ${g.status === 'pedido' ? 'pedida — a Dra. Ingrid vai confirmar' : 'confirmada'}</div><b>${SEM_LONGO[diaSemN(g.data)]}, ${dataCurta(g.data)} às ${g.hora}</b><div class="small">${esc(animal(g.animalId).nome)} · ${esc(servicosTxt(g))}</div></div>`).join('')}
   <div class="card menu" style="margin-top:12px">
     ${menu.map(([h, i, t, s]) => `<a href="${h}"><span class="icm">${ic(i)}</span><span class="grow">${t}<small>${s}</small></span>${ic('chevron-right')}</a>`).join('')}
-    <a href="${waLink('Olá, Dra. Ingrid! ')}" target="_blank" rel="noopener"><span class="icm" style="background:var(--verde-2);color:var(--wa)">${ic('message-circle')}</span><span class="grow">Falar no WhatsApp<small>${DB.cfg.whats ? esc(DB.cfg.whats) : 'número da Ingrid — falta'}</small></span>${ic('chevron-right')}</a>
+    <a href="${waLink('Olá, Dra. Ingrid! ', (typeof PUB === 'object' && PUB && PUB.whats) || DB.cfg.whats)}" target="_blank" rel="noopener"><span class="icm" style="background:var(--verde-2);color:var(--wa)">${ic('message-circle')}</span><span class="grow">Falar no WhatsApp<small>${DB.cfg.whats ? esc(DB.cfg.whats) : 'número da Ingrid — falta'}</small></span>${ic('chevron-right')}</a>
   </div></main>`;
 };
 
@@ -1302,7 +1702,7 @@ TUTOR.orcamento = id => {
   const o = DB.orcamentos.find(x => x.id === id); if (!o) return barraTutor('Orçamento') + '<main>Orçamento não encontrado.</main>';
   const a = animal(o.animalId), c = DB.cfg;
   return barraTutor(o.status === 'pago' ? 'Pagamento recebido' : 'Resumo da visita', `${esc(a.nome)} · ${dataCurta(o.data)}`) + `<main>
-  <div class="card">${o.itens.map(i => `<div class="row between" style="margin:6px 0"><span>${esc(tab(i.tab)?.nome || '')}</span><b>${brl((tab(i.tab)?.preco || 0) * (i.qtd || 1))}</b></div>`).join('')}
+  <div class="card">${o.itens.map(i => `<div class="row between" style="margin:6px 0"><span>${esc(tab(i.tab)?.nome || '')}</span><b>${brl(precoItem(i) * qtdItem(i))}</b></div>`).join('')}
     <div class="row between" style="border-top:1px solid var(--linha);margin-top:8px;padding-top:10px"><b>Total</b><b style="font-size:22px">${brl(totalItens(o.itens))}</b></div></div>
   ${o.status === 'pago' ? `<p class="muted" style="text-align:center">Pago com ${o.forma === 'cartao' ? 'cartão' : 'Pix'}. Obrigada!</p>` : `
   <div class="secao"><h2>Como prefere pagar?</h2></div>
@@ -1357,7 +1757,7 @@ function centralAvisos() {
   DB.orcamentos.filter(o => o.status !== 'pago' && diasAte(o.data) <= -7).forEach(o => {
     const t = tutor(o.tutorId), a = animal(o.animalId); if (!t) return;
     const msg = `Olá, ${t.nome.split(' ')[0]}! Aqui é a Dra. Ingrid 🐾 Passando para lembrar do valor em aberto da visita de ${dataCurta(o.data)}${a ? ' (' + a.nome + ')' : ''}: ${brl(totalItens(o.itens))}. Pode ser por Pix${DB.cfg.pix ? ' (chave ' + DB.cfg.pix + ')' : ''} ou cartão. Obrigada!`;
-    L.push({ k: 'orc' + o.id, grupo: 'espera', icone: 'wallet', titulo: `${brl(totalItens(o.itens))} em aberto · ${t.nome}`, sub: `Visita de ${dataCurta(o.data)} · ${quando(o.data)}`, rotulo: 'Lembrar', link: waLink(msg), wa: true, extra: `receber('${o.id}')`, extraRot: 'Recebi' });
+    L.push({ k: 'orc' + o.id, grupo: 'espera', icone: 'wallet', titulo: `${brl(totalItens(o.itens))} em aberto · ${t.nome}`, sub: `Visita de ${dataCurta(o.data)} · ${quando(o.data)}`, rotulo: 'Lembrar', link: waLink(msg, t.fone), wa: true, extra: `receber('${o.id}')`, extraRot: 'Recebi' });
   });
   const repor = DB.estoque.filter(e => e.qtd <= e.min);
   if (repor.length) L.push({ k: 'repor' + repor.map(e => e.id + e.qtd).join(''), grupo: 'espera', icone: 'package', titulo: `${repor.length} ${repor.length === 1 ? 'item para repor' : 'itens para repor'}`, sub: repor.map(e => `${e.nome} (${e.qtd})`).join(', '), rotulo: 'Lista de compras', acao: 'listaCompras()' });

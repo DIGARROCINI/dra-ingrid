@@ -210,6 +210,21 @@ body.tutor .cta-fixa{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bot
 .acao{align-self:stretch;background:#fff;border:2px solid var(--lil);border-radius:16px;padding:12px 14px}
 .acao ul{margin:6px 0 10px;padding-left:18px}
 .msg.carregando{color:var(--tinta-2);font-style:italic}
+.salvo{display:flex;align-items:center;gap:6px;color:var(--verde);font-weight:600;margin:-2px 0 4px}
+.salvo.salvando{color:var(--tinta-2)}
+.campos-grade{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.campos-grade>*{grid-column:1/-1;min-width:0}
+.campos-grade>.meia{grid-column:auto}
+.campos-grade h3{margin:16px 0 0}
+.falta{color:var(--coral-f);font-size:12.5px;margin-top:4px}
+.acao .campos-grade{margin:2px 0 12px}
+.acao .campos-grade label{margin-top:8px}
+.clica{cursor:pointer;width:100%;text-align:left;background:none;border:0;font:inherit;color:inherit;padding:0}
+.toca{cursor:pointer;border-radius:10px}
+.toca:hover{background:var(--lil-3)}
+.toca:focus-visible{outline:2px solid var(--lil);outline-offset:2px}
+.btn.perigo{color:var(--coral-f)}
+.editar{display:inline-flex;align-items:center;gap:4px}
 .acao.feita{border-color:var(--verde-2);opacity:.85}
 .sugs{display:flex;gap:6px;flex-wrap:wrap}
 .sugs button{border:1px solid var(--linha);background:#fff;border-radius:99px;padding:7px 12px;font:500 13px Figtree;cursor:pointer;color:var(--lil-f)}
