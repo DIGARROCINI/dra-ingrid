@@ -1106,8 +1106,9 @@ function historicoIA() {
     if (h.length && h[h.length - 1].role === role) h[h.length - 1].content += '\n' + t;   // falas seguidas do mesmo lado viram uma só
     else h.push({ role, content: t });
   }
-  while (h.length && h[0].role !== 'user') h.shift();
-  return h.slice(-16);
+  const ult = h.slice(-16);
+  while (ult.length && ult[0].role !== 'user') ult.shift();
+  return ult;
 }
 function atualizarMsg(i) { const el = document.querySelector(`[data-msg="${i}"]`); if (el) { el.textContent = conversa[i].t || '…'; window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }); } }
 async function perguntarIA(p, porVoz) {
