@@ -1627,6 +1627,8 @@ function historicoIA() {
     const role = m.de === 'eu' ? 'user' : 'assistant';
     const t = m.de === 'acao' ? `[cartão: ${m.acao.titulo} — ${m.estado === 'feito' ? 'confirmado pela Ingrid' : m.estado === 'cancelado' ? 'cancelado' : 'aguardando confirmação'}]` : m.erro ? '' : m.t;
     if (!t) continue;
+    /* v-data: fala de OUTRO dia vai carimbada — senão o histórico de ontem ("hoje é 28") vira verdade hoje */
+    if (m.de === 'eu' && m.dia && m.dia !== isoHoje()) t = '[dito em ' + m.dia.slice(8, 10) + '/' + m.dia.slice(5, 7) + '] ' + t;
     if (h.length && h[h.length - 1].role === role) h[h.length - 1].content += '\n' + t;   // falas seguidas do mesmo lado viram uma só
     else h.push({ role, content: t });
   }
@@ -1638,7 +1640,7 @@ function atualizarMsg(i) { const el = document.querySelector(`[data-msg="${i}"]`
 async function perguntarIA(p, porVoz) {
   if (iaOcupada) return toast('Espere eu terminar a resposta anterior');
   iaOcupada = true;
-  conversa.push({ de: 'eu', t: p });
+  conversa.push({ de: 'eu', t: p, dia: isoHoje() });   /* v-data: guarda o dia em que foi dito */
   const hist = historicoIA();
   conversa.push({ de: 'ia', t: '', carregando: true });
   let atual = conversa.length - 1, cartaoIdx = -1, depoisCartao = false, falado = '';
