@@ -1625,7 +1625,7 @@ function historicoIA() {
   const h = [];
   for (const m of conversa) {
     const role = m.de === 'eu' ? 'user' : 'assistant';
-    const t = m.de === 'acao' ? `[cartão: ${m.acao.titulo} — ${m.estado === 'feito' ? 'confirmado pela Ingrid' : m.estado === 'cancelado' ? 'cancelado' : 'aguardando confirmação'}]` : m.erro ? '' : m.t;
+    let t = m.de === 'acao' ? `[cartão: ${m.acao.titulo} — ${m.estado === 'feito' ? 'confirmado pela Ingrid' : m.estado === 'cancelado' ? 'cancelado' : 'aguardando confirmação'}]` : m.erro ? '' : m.t;
     if (!t) continue;
     /* v-data: fala de OUTRO dia vai carimbada — senão o histórico de ontem ("hoje é 28") vira verdade hoje */
     if (m.de === 'eu' && m.dia && m.dia !== isoHoje()) t = '[dito em ' + m.dia.slice(8, 10) + '/' + m.dia.slice(5, 7) + '] ' + t;
