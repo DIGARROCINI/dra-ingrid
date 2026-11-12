@@ -704,17 +704,135 @@ function proximaVisita() {
   const vs = DB.agenda.filter(g => g.data === hoje && g.status === 'confirmado').sort((a, b) => a.hora.localeCompare(b.hora));
   return vs.find(g => minutos(g.hora) >= agora - 60) || vs[0] || null;
 }
+/* ---- Hoje: o painel do dia. Tudo que pede uma ação aparece numa lista só, na ordem de urgência ---- */
+const tarefasLista = () => (DB.tarefas = DB.tarefas || []);
+function paraFazer() {
+  const hoje = isoHoje(), itens = [];
+  const btn = (txt, js, cls = 'mini') => `<button class="btn ${cls}" onclick="${js}">${txt}</button>`;
+  // 1. pedidos de horário que o tutor fez pelo link
+  DB.agenda.filter(g => g.status === 'pedido').sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora)).forEach(g => {
+    const a = animal(g.animalId), t = a && tutor(a.tutorId); if (!a || !t) return;
+    itens.push({ k: 'p' + g.id, pri: 10, ic: 'calendar', cor: 'lil', tipo: 'Pedido de horário', titulo: `${a.nome} · ${t.nome}`, sub: `${diaSem(g.data)} ${dataCurta(g.data)} às ${g.hora} · ${servicosTxt(g)}`,
+      acoes: btn(`${ic('check', 'sm')} Confirmar`, `confirmar('${g.id}')`) + btn('Outro horário', `recusar('${g.id}')`, 'mini ghost') });
+  });
+  // 2. tarefas dela (sem data ou com data até hoje)
+  tarefasLista().filter(x => !x.feita && (!x.data || x.data <= hoje)).forEach(x => {
+    itens.push({ k: 't' + x.id, pri: x.data && x.data < hoje ? 15 : 20, ic: 'clipboard-list', cor: 'lil', tipo: 'Tarefa', titulo: x.texto, sub: x.data ? (x.data < hoje ? 'era para ' + quando(x.data) : 'para hoje') : 'sem data', atraso: !!x.data && x.data < hoje, tarefa: x.id, toque: `editarTarefa('${x.id}')` });
+  });
+  // 3. retornos combinados na consulta e ainda não marcados na agenda
+  DB.atendimentos.filter(x => x.retorno && !x.retornoOk && diasAte(x.retorno) <= 7).forEach(x => {
+    const a = animal(x.animalId), t = a && tutor(a.tutorId); if (!a || !t) return;
+    if (DB.agenda.some(g => g.animalId === x.animalId && g.data > x.data)) return;
+    const n = diasAte(x.retorno);
+    itens.push({ k: 'r' + x.id, pri: n < 0 ? 25 : 30, ic: 'stethoscope', cor: n < 0 ? 'coral' : 'azul', tipo: 'Retorno', titulo: `${a.nome} · ${t.nome}`, sub: `retorno combinado para ${dataCurta(x.retorno)} (${quando(x.retorno)})${x.campos?.suspeita ? ' · ' + x.campos.suspeita : ''}`,
+      acoes: btn(`${ic('calendar', 'sm')} Marcar`, `novoHorario({animalId:'${a.id}',data:'${x.retorno < hoje ? hoje : x.retorno}',obs:'Retorno'})`) + btn('Não precisa', `dispensar('retorno','${x.id}')`, 'mini ghost'), toque: `verConsulta('${x.id}')` });
+  });
+  // 4. exames pedidos que ainda não voltaram (nenhum arquivo "Exame" desde a consulta)
+  DB.atendimentos.filter(x => listaExames(x.campos?.exames).length && !x.examesOk && diasAte(x.data) <= -2 && diasAte(x.data) >= -60).forEach(x => {
+    const a = animal(x.animalId), t = a && tutor(a.tutorId); if (!a || !t) return;
+    if (anexosDe(a.id).some(y => y.tipo === 'Exame' && y.data >= x.data)) return;
+    const ex = listaExames(x.campos.exames);
+    itens.push({ k: 'e' + x.id, pri: 40, ic: 'flask-conical', cor: 'azul', tipo: 'Resultado de exame', titulo: `${a.nome} · ${t.nome}`, sub: `${ex.slice(0, 2).join(', ')}${ex.length > 2 ? ' e mais ' + (ex.length - 2) : ''} · pedido ${quando(x.data)}`,
+      acoes: btn(`${ic('message-circle', 'sm')} Pedir ao tutor`, `pedirAoTutor('${a.id}')`, 'mini sec') + btn('Já chegou', `dispensar('exames','${x.id}')`, 'mini ghost'), toque: `verConsulta('${x.id}')` });
+  });
+  // 5. cobranças em aberto há 3 dias ou mais
+  DB.orcamentos.filter(o => o.status !== 'pago' && diasAte(o.data) <= -3 && !(DB.avisos['cob' + o.id] && diasAte(DB.avisos['cob' + o.id]) > -4)).forEach(o => {
+    const t = tutor(o.tutorId), a = animal(o.animalId); if (!t) return;
+    itens.push({ k: 'c' + o.id, pri: 50, ic: 'wallet', cor: 'ambar', tipo: 'Cobrança', titulo: `${brl(totalItens(o.itens))} · ${t.nome}`, sub: `${a ? a.nome + ' · ' : ''}${o.status === 'aprovado' ? 'aprovado, falta pagar' : 'enviado'} ${quando(o.data)}`,
+      acoes: btn(`${ic('message-circle', 'sm')} Lembrar`, `lembrarCobranca('${o.id}')`, 'mini sec') + btn('Abrir', `editarOrc('${o.id}')`, 'mini ghost') });
+  });
+  // 6. estoque: um item só, com os nomes
+  const est = DB.estoque.filter(e => e.qtd <= e.min || (e.validade && diasAte(e.validade) <= 30));
+  if (est.length) {
+    const repor = est.filter(e => e.qtd <= e.min), vence = est.filter(e => e.validade && diasAte(e.validade) <= 30);
+    const grave = est.some(e => e.qtd <= 0 || (e.validade && diasAte(e.validade) < 0));
+    itens.push({ k: 'est', pri: 60, ic: 'package', cor: grave ? 'coral' : 'ambar', tipo: 'Estoque', titulo: [repor.length && `${repor.length} para repor`, vence.length && `${vence.length} vence${vence.length > 1 ? 'm' : ''} em 30 dias`].filter(Boolean).join(' · '),
+      sub: est.slice(0, 3).map(e => e.nome).join(', ') + (est.length > 3 ? ` e mais ${est.length - 3}` : ''), toque: `go('/estoque')` });
+  }
+  // 7. ART dos mercados (Responsável Técnico)
+  (Array.isArray(DB.rtMercados) ? DB.rtMercados : []).filter(m => m.art_fim && diasAte(m.art_fim) <= 30).forEach(m => {
+    const n = diasAte(m.art_fim);
+    itens.push({ k: 'm' + m.id, pri: n < 0 ? 35 : 65, ic: 'shield-check', cor: n < 0 ? 'coral' : 'ambar', tipo: 'Responsável técnico', titulo: m.nome_fantasia || 'Mercado', sub: n < 0 ? `ART venceu ${quando(m.art_fim)} — renovar` : `ART vence ${quando(m.art_fim)} (${dataCurta(m.art_fim)})`, toque: `go('/rt')` });
+  });
+  return itens.sort((a, b) => a.pri - b.pri);
+}
+function itemFazer(x) {
+  const txt = `<div class="tipo-fazer">${esc(x.tipo)}</div><b>${esc(x.titulo)}</b>${x.sub ? `<div class="small ${x.atraso ? 'alt' : 'muted'}">${esc(x.sub)}</div>` : ''}`;
+  const lado = x.tarefa
+    ? `<label class="check-tarefa"><input type="checkbox" onchange="concluirTarefa('${x.tarefa}')" aria-label="Marcar como feita: ${esc(x.titulo)}"></label>`
+    : `<div class="ic-fazer ${x.cor}" aria-hidden="true">${ic(x.ic)}</div>`;
+  return `<div class="item fazer">${lado}<div class="grow">${x.toque ? `<div class="toca" ${tocavel(x.toque)}>${txt}</div>` : txt}${x.acoes ? `<div class="row wrap" style="gap:8px;margin-top:8px">${x.acoes}</div>` : ''}</div>${x.toque && !x.acoes ? ic('chevron-right') : ''}</div>`;
+}
+function dispensar(qual, atid) {
+  const x = DB.atendimentos.find(y => y.id === atid); if (!x) return;
+  comDesfazer(qual === 'retorno' ? 'Retorno tirado da lista' : 'Exames marcados como recebidos', () => { x[qual === 'retorno' ? 'retornoOk' : 'examesOk'] = isoHoje(); });
+  route({ manterScroll: true });
+}
+function lembrarCobranca(oid) {
+  const o = DB.orcamentos.find(x => x.id === oid); if (!o) return;
+  const t = tutor(o.tutorId), a = animal(o.animalId);
+  const msg = `Olá, ${t.nome.split(' ')[0]}! Aqui é a Dra. Ingrid 🐾\nPassando para lembrar do valor da visita${a ? ' do ' + a.nome : ''} de ${dataCurta(o.data)}: ${brl(totalItens(o.itens))}.\n` + (MODO_REAL ? `Pode ser por Pix${DB.cfg.pix ? ' (chave ' + DB.cfg.pix + ')' : ''} ou cartão.` : `Os detalhes e as formas de pagamento estão aqui: ${linkApp('/t/orcamento/' + o.id)}`) + `\nSe já pagou, desconsidere 💜`;
+  abrirFolha(`<h2>Lembrar ${esc(t.nome.split(' ')[0])}</h2><p class="muted small">${brl(totalItens(o.itens))} · ${dataCurta(o.data)}</p>
+    <label for="msgCob">Mensagem (pode editar)</label><textarea id="msgCob" rows="6">${esc(msg)}</textarea>
+    <div class="row" style="margin-top:14px"><a class="btn wa grow" target="_blank" rel="noopener" id="btnCob" href="${waLink(msg, t.fone)}" onclick="DB.avisos['cob${o.id}']=isoHoje();salvar();setTimeout(()=>route({manterScroll:true}),400)">${ic('message-circle')} Abrir no WhatsApp</a>
+    <button class="btn ghost" onclick="fecharFolha();editarOrc('${o.id}')">Já pagou</button></div>`);
+  $('#msgCob').addEventListener('input', e => { $('#btnCob').href = waLink(e.target.value, t.fone); });
+}
+function novaTarefa() {
+  abrirFolha(`<h2>Nova tarefa</h2>
+    <label for="ntT">O que fazer</label><textarea id="ntT" rows="3" placeholder="Ex.: ligar para o laboratório, comprar seringas, mandar o POP para o mercado"></textarea>
+    <label>Para quando</label><div class="chips-rola" id="ntQ">${[['Hoje', isoHoje()], ['Amanhã', isoMais(isoHoje(), 1)], ['Em 7 dias', isoMais(isoHoje(), 7)], ['Sem data', '']].map(([n, d], i) => `<button type="button" class="chip ${i === 0 ? 'on' : ''}" data-d="${d}" onclick="$('#ntD').value=this.dataset.d;document.querySelectorAll('#ntQ .chip').forEach(b=>b.classList.toggle('on',b===this))">${n}</button>`).join('')}</div>
+    <input type="date" id="ntD" value="${isoHoje()}" style="margin-top:8px" aria-label="Data da tarefa" oninput="document.querySelectorAll('#ntQ .chip').forEach(b=>b.classList.toggle('on',b.dataset.d===this.value))">
+    <button class="btn full" style="margin-top:16px" onclick="salvarTarefa()">${ic('check')} Guardar</button>`, 'tarefa');
+  setTimeout(() => $('#ntT')?.focus(), 50);
+}
+function salvarTarefa() {
+  const texto = $('#ntT').value.trim(); if (!texto) return toast('Escreva a tarefa');
+  const x = { id: uid('tf'), texto, data: $('#ntD').value || '', feita: false, criada: isoHoje() };
+  rascFolhaLimpar(); fecharFolha();
+  comDesfazer('Tarefa guardada', () => tarefasLista().push(x));
+  route({ manterScroll: true });
+}
+function concluirTarefa(id) {
+  const x = tarefasLista().find(y => y.id === id); if (!x) return;
+  comDesfazer('Tarefa feita ✓', () => { x.feita = true; x.feitaEm = isoHoje(); });
+  setTimeout(() => route({ manterScroll: true }), 250);
+}
+function editarTarefa(id) {
+  abrirFicha('Tarefa', () => tarefasLista().find(y => y.id === id), [
+    { k: 'texto', rot: 'O que fazer', tipo: 'area', linhas: 3, obrig: true }, { k: 'data', rot: 'Para quando', tipo: 'date' }, { k: 'feita', rot: 'Já foi feita', tipo: 'check' },
+  ], { rodape: botaoApagar('Apagar tarefa', `apagarComDesfazer('Tarefa apagada',()=>{DB.tarefas=tarefasLista().filter(y=>y.id!=='${id}')},'Apagar esta tarefa?')`), depois: () => { const x = tarefasLista().find(y => y.id === id); if (x && x.feita && !x.feitaEm) x.feitaEm = isoHoje(); } });
+}
+function verTarefas() {
+  const hoje = isoHoje(), fut = tarefasLista().filter(x => !x.feita && x.data > hoje).sort((a, b) => a.data.localeCompare(b.data));
+  const feitas = tarefasLista().filter(x => x.feita).sort((a, b) => (b.feitaEm || '').localeCompare(a.feitaEm || '')).slice(0, 15);
+  abrirFolha(`<h2>Tarefas</h2>
+    <div class="secao" style="margin-top:6px"><h2>Próximos dias</h2></div><div class="card">${fut.length ? fut.map(x => `<div class="item toca" ${tocavel(`editarTarefa('${x.id}')`)}><div class="grow"><b>${esc(x.texto)}</b><div class="small muted">${diaSem(x.data)} ${dataCurta(x.data)} · ${quando(x.data)}</div></div>${ic('chevron-right')}</div>`).join('') : '<p class="small muted" style="margin:0">Nada marcado para depois.</p>'}</div>
+    ${feitas.length ? `<div class="secao"><h2>Feitas</h2></div><div class="card">${feitas.map(x => `<div class="item toca" ${tocavel(`editarTarefa('${x.id}')`)}><span class="ok">${ic('check', 'sm')}</span><div class="grow"><span style="text-decoration:line-through;color:var(--tinta-2)">${esc(x.texto)}</span><div class="tiny muted">${x.feitaEm ? 'feita ' + quando(x.feitaEm) : ''}</div></div></div>`).join('')}</div>` : ''}
+    <button class="btn full" style="margin-top:14px" onclick="novaTarefa()">${ic('plus')} Nova tarefa</button>`);
+}
+function semanaHTML() {
+  const hoje = isoHoje(), dias = Array.from({ length: 7 }, (_, i) => isoMais(hoje, i));
+  const n = d => DB.agenda.filter(g => g.data === d && g.status !== 'pedido').length;
+  const ped = d => DB.agenda.filter(g => g.data === d && g.status === 'pedido').length;
+  const mx = Math.max(1, ...dias.map(n));
+  return `<div class="semana" role="list">${dias.map((d, i) => { const q = n(d), p = ped(d); return `<a role="listitem" class="dia-sem ${i === 0 ? 'hoje' : ''}" href="#/agenda" onclick="diaAgenda='${d}'" aria-label="${i === 0 ? 'Hoje' : SEM_LONGO[diaSemN(d)]} ${dataCurta(d)}: ${q} visita${q === 1 ? '' : 's'}${p ? ', ' + p + ' pedido' + (p > 1 ? 's' : '') + ' para aprovar' : ''}">
+    <span class="q">${q || ''}</span><span class="barra-dia"><i style="height:${q ? Math.max(14, q / mx * 100) : 0}%"></i></span>
+    <span class="d">${i === 0 ? 'hoje' : SEM[diaSemN(d)]}</span><span class="n">${+d.slice(8)}</span>${p ? `<span class="ped" title="${p} pedido(s)">+${p}</span>` : ''}</a>`; }).join('')}</div>`;
+}
 TELAS.hoje = () => {
   const hoje = isoHoje();
   const visitas = DB.agenda.filter(g => g.data === hoje && g.status !== 'pedido').sort((a, b) => a.hora.localeCompare(b.hora));
   const pendentes = visitas.filter(g => g.status !== 'feito');
-  const pedidos = DB.agenda.filter(g => g.status === 'pedido').sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
   const avisos = avisosHoje();
-  const ym = hoje.slice(0, 7);
+  const fazer = paraFazer();
+  const ym = hoje.slice(0, 7), [ano, m, d] = hoje.split('-').map(Number);
+  const mesAnt = mesMais(ym, -1), diaAnt = mesAnt + '-' + String(Math.min(d, new Date(ano, m - 1, 0).getDate())).padStart(2, '0');
   const entrou = DB.lanc.filter(l => l.tipo === 'entrada' && l.data.startsWith(ym)).reduce((s, l) => s + l.valor, 0);
-  const aReceber = DB.orcamentos.filter(o => o.status !== 'pago').reduce((s, o) => s + totalItens(o.itens), 0);
-  const est = DB.estoque.filter(e => e.qtd <= e.min || (e.validade && diasAte(e.validade) <= 30));
-  const [, m, d] = hoje.split('-').map(Number);
+  const entrouAnt = DB.lanc.filter(l => l.tipo === 'entrada' && l.data.startsWith(mesAnt) && l.data <= diaAnt).reduce((s, l) => s + l.valor, 0);
+  const abertos = DB.orcamentos.filter(o => o.status !== 'pago'), aReceber = abertos.reduce((s, o) => s + totalItens(o.itens), 0);
+  const atr = atrasadas().length, venc = vencendo().length;
+  const total = fazer.length + pendentes.length + avisos.length;
   const hr = new Date().getHours(), saud = hr < 12 ? 'Bom dia' : hr < 18 ? 'Boa tarde' : 'Boa noite';
   const px = proximaVisita();
   let cardPx = '';
@@ -725,26 +843,29 @@ TELAS.hoje = () => {
       <div class="tiny muted">${esc(endereco(t))}</div></div></div>
       <div class="botoes"><a class="btn sec" href="${rotaLink(t)}" target="_blank" rel="noopener">${ic('navigation', 'sm')} Rota</a>
       <a class="btn sec" href="${aCaminho(px.id)}" target="_blank" rel="noopener">${ic('car', 'sm')} A caminho</a>
-      <a class="btn" href="#/atender/${a.id}/${px.id}">${ic('stethoscope', 'sm')} Atender</a></div></div>`;
-  } else cardPx = `<div class="proxima"><div class="quando">Sem mais visitas hoje</div><p class="small muted" style="margin:6px 0 0">Aproveite para responder os pedidos e avisar os tutores abaixo.</p></div>`;
+      <a class="btn" href="#/atender/${a.id}/${px.id}">${ic('stethoscope', 'sm')} Consulta</a></div></div>`;
+  }
+  const delta = entrouAnt > 0 ? Math.round((entrou - entrouAnt) / entrouAnt * 100) : null;
+  const tile = (href, rot, val, sub, cls = '', on = '') => `<a class="kpi ${cls}" role="listitem" href="${href}"${on ? ` onclick="${on}"` : ''}><span class="rot">${rot}</span><b>${val}</b><span class="sub">${sub}</span></a>`;
+  const futuras = tarefasLista().filter(x => !x.feita && x.data > hoje).length;
 
   return `<section class="hero"><div class="in"><div class="marca"><img src="simbolo.png" alt=""><b>Dra. Ingrid Garrocini</b><span>CRMV ${esc(DB.cfg.crmv)}</span>${sinoBtn()}</div>
-    <h1>${saud}, Ingrid</h1><div class="sub">${SEM_LONGO[diaSemN(hoje)]}, ${d} de ${MESES[m - 1]} · ${pendentes.length ? pendentes.length + (pendentes.length === 1 ? ' visita pela frente' : ' visitas pela frente') : 'agenda do dia concluída'}</div>
+    <div class="hero-linha"><div class="grow"><h1>${saud}, Ingrid</h1><div class="sub">${SEM_LONGO[diaSemN(hoje)]}, ${d} de ${MESES[m - 1]}</div></div>
+      <a class="hero-num" href="#fazer" onclick="event.preventDefault();document.getElementById('fazer').scrollIntoView({behavior:'smooth'})">${total ? `<b>${total}</b><span>para fazer<br>hoje</span>` : `<b class="ok-hero">${ic('check')}</b><span>tudo<br>em dia</span>`}</a></div>
     ${cardPx}</div></section><main>
-  <div class="kpis" role="list">
-    <a class="kpi ${atrasadas().length ? 'alerta' : ''}" role="listitem" href="#/clientes" onclick="filtroCli='atrasada'"><b>${atrasadas().length}</b><span>vacinas atrasadas</span></a>
-    <a class="kpi" role="listitem" href="#/clientes" onclick="filtroCli='vence'"><b>${vencendo().length}</b><span>vencem em 15 dias</span></a>
-    <a class="kpi" role="listitem" href="#/financeiro"><b>${brlCurto(entrou)}</b><span>entrou em ${MESES[m - 1]}</span></a>
-    <a class="kpi" role="listitem" href="#/financeiro"><b>${brlCurto(aReceber)}</b><span>a receber</span></a>
+  <div class="kpis-grade" role="list" style="margin-top:4px">
+    ${tile('#/agenda', 'Visitas hoje', visitas.length, visitas.length ? `${visitas.length - pendentes.length} feita${visitas.length - pendentes.length === 1 ? '' : 's'} · ${pendentes.length} pela frente` : 'agenda livre', '', `diaAgenda='${hoje}'`)}
+    ${tile('#/clientes', 'Vacinas atrasadas', atr ? `${ic('triangle-alert', 'sm')} ${atr}` : '0', `${venc} vence${venc === 1 ? '' : 'm'} em 15 dias`, atr ? 'alerta' : '', `filtroCli='${atr ? 'atrasada' : 'vence'}'`)}
+    ${tile('#/financeiro', 'A receber', brlCurto(aReceber), `${abertos.length} cobrança${abertos.length === 1 ? '' : 's'} em aberto`)}
+    ${tile('#/financeiro', `Entrou em ${MESES[m - 1]}`, brlCurto(entrou), delta === null ? (DB.lanc.some(l => l.data.startsWith(mesAnt)) ? `${MESES[(m + 10) % 12].slice(0, 3)} até dia ${d}: nada` : `sem lançamentos em ${MESES[(m + 10) % 12].slice(0, 3)}`) : `<span class="delta ${delta >= 0 ? 'sobe' : 'desce'}">${delta >= 0 ? '↑' : '↓'} ${Math.abs(delta)}%</span> vs ${MESES[(m + 10) % 12].slice(0, 3)} até dia ${d}`)}
   </div>
 
-  ${pedidos.length ? `<div class="secao"><h2>Para aprovar<span class="cont">${pedidos.length}</span></h2></div>
-  <div class="card">${pedidos.map(g => { const a = animal(g.animalId), t = tutor(a.tutorId); return `
-    <div class="item">${avatar(a)}
-      <div class="grow"><b>${esc(a.nome)}</b> <span class="muted small">· ${esc(t.nome)}</span>
-      <div class="small">${diaSem(g.data)} ${dataCurta(g.data)} às <b>${g.hora}</b> · ${esc(servicosTxt(g))}</div>
-      <div class="tiny muted">${esc(t.bairro)} · pediu pelo link</div>
-      <div class="row" style="margin-top:8px"><button class="btn mini" onclick="confirmar('${g.id}')">${ic('check', 'sm')} Confirmar</button><button class="btn mini ghost" onclick="recusar('${g.id}')">Outro horário</button></div></div></div>`; }).join('')}</div>` : ''}
+  <div class="secao"><h2>Próximos 7 dias</h2><a href="#/agenda" class="small" onclick="diaAgenda='${hoje}'">Agenda</a></div>
+  <div class="card" style="padding:10px 8px 8px">${semanaHTML()}${DB.agenda.some(g => g.status === 'pedido' && diasAte(g.data) >= 0 && diasAte(g.data) < 7) ? '<p class="tiny muted" style="margin:6px 4px 0"><span class="ped-leg">+1</span> pedido de horário esperando você aprovar</p>' : ''}</div>
+
+  <div class="secao" id="fazer"><h2>Para fazer${fazer.length ? `<span class="cont">${fazer.length}</span>` : ''}</h2><button class="btn mini ghost" onclick="novaTarefa()">${ic('plus', 'sm')} Tarefa</button></div>
+  <div class="card">${fazer.length ? fazer.map(itemFazer).join('') : `<p class="muted small" style="margin:0">${ic('check', 'sm')} Nada pendente. Pedidos de horário, retornos combinados, resultados de exame que faltam, cobranças, estoque e ART dos mercados aparecem aqui sozinhos — e as tarefas que você criar.</p>`}
+    ${futuras || tarefasLista().some(x => x.feita) ? `<button class="btn mini ghost full" style="margin-top:10px" onclick="verTarefas()">${futuras ? futuras + ' tarefa' + (futuras > 1 ? 's' : '') + ' para os próximos dias · ' : ''}ver todas</button>` : ''}</div>
 
   <div class="secao"><h2>Visitas de hoje</h2>${pendentes.length > 1 ? `<a class="btn mini ghost" href="${rotaDoDia(pendentes)}" target="_blank" rel="noopener">${ic('route', 'sm')} Rota do dia</a>` : ''}</div>
   <div class="card">${visitas.length ? visitas.map(g => { const a = animal(g.animalId), t = tutor(a.tutorId); return `
@@ -752,17 +873,13 @@ TELAS.hoje = () => {
       <div class="grow toca" ${tocavel(`editarHorario('${g.id}')`)}><b>${esc(a.nome)}</b> <span class="muted small">· ${esc(t.nome)}</span>
       <div class="small">${esc(servicosTxt(g))}${g.obs ? ' · ' + esc(g.obs) : ''}</div>
       <div class="tiny muted">${ic('map-pin', 'sm')} ${esc(t.bairro)}</div></div>
-      ${g.status === 'feito' ? `<span class="tag verde">${ic('check', 'sm')} feito</span>` : `<a class="btn mini" href="#/atender/${a.id}/${g.id}">Atender</a>`}</div>`; }).join('') : '<p class="muted" style="margin:0">Nenhuma visita hoje.</p>'}</div>
+      ${g.status === 'feito' ? `<span class="tag verde">${ic('check', 'sm')} feito</span>` : `<a class="btn mini" href="#/atender/${a.id}/${g.id}">Consulta</a>`}</div>`; }).join('') : '<p class="muted" style="margin:0">Nenhuma visita hoje.</p>'}</div>
 
-  <div class="secao"><h2>Avisar hoje${avisos.length ? `<span class="cont">${avisos.length}</span>` : ''}</h2><a href="#/avisos" class="small">Todos os avisos</a></div>
+  <div class="secao"><h2>Avisar tutores${avisos.length ? `<span class="cont">${avisos.length}</span>` : ''}</h2><a href="#/avisos" class="small">Todos os avisos</a></div>
   <div class="card">${avisos.length ? avisos.map(x => `
     <div class="item">${avatar(x.a)}
       <div class="grow"><b>${esc(x.a.nome)}</b> <span class="muted small">· ${esc(x.t.nome)}</span><div class="small"><span class="tag ${x.cls}">${x.tipo}</span> ${esc(x.titulo)}</div></div>
-      <button class="btn mini wa" onclick="avisar('${x.k}')" aria-label="Avisar ${esc(x.t.nome)}">${ic('message-circle', 'sm')} Avisar</button></div>`).join('') : '<p class="muted small" style="margin:0">Ninguém para avisar hoje. Quando uma vacina estiver para vencer, um check-up chegar ou for hora de pedir avaliação, o tutor aparece aqui com o botão <b>Avisar</b> — ele abre o WhatsApp do tutor com a mensagem pronta.</p>'}</div>
-
-  ${est.length ? `<div class="secao"><h2>Estoque</h2><a href="#/estoque" class="small">Ver tudo</a></div>
-  <div class="card">${est.map(e => `<div class="item"><div class="grow"><b>${esc(e.nome)}</b><div class="small muted">${e.qtd} em estoque${e.lote ? ' · lote ' + esc(e.lote) : ''}</div></div>
-    ${e.qtd <= e.min ? '<span class="tag coral">repor</span>' : ''}${e.validade && diasAte(e.validade) <= 30 ? `<span class="tag ambar">vence ${quando(e.validade)}</span>` : ''}</div>`).join('')}</div>` : ''}
+      <button class="btn mini wa" onclick="avisar('${x.k}')" aria-label="Avisar ${esc(x.t.nome)}">${ic('message-circle', 'sm')} Avisar</button></div>`).join('') : '<p class="muted small" style="margin:0">Ninguém para avisar hoje. Quando uma vacina estiver para vencer, um check-up chegar ou for hora de pedir avaliação, o tutor aparece aqui.</p>'}</div>
   </main>`;
 };
 
@@ -1931,7 +2048,7 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
     <button class="btn ghost full" style="margin-top:12px" onclick="go('/nova-senha')">Trocar minha senha</button>
     <button class="btn ghost full" style="margin-top:8px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.13 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.14 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 function cartaoAcesso() {
   const partes = [];

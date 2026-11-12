@@ -1,7 +1,7 @@
 /* Dados de exemplo do protótipo. Datas relativas a hoje, para a demonstração nunca envelhecer.
    Valores marcados com exemplo:true NÃO vieram da Ingrid — aparecem com a etiqueta "exemplo". */
 
-const SEED_VER = 3;
+const SEED_VER = 4;
 
 function seedDB() {
   const d = n => isoMais(isoHoje(), n);
@@ -69,7 +69,7 @@ function seedDB() {
   ];
 
   const atendimentos = [
-    { id: 'at1', animalId: 'a2', data: d(-1), tipo: 'Consulta domiciliar', resumo: 'Vômito ocasional, bola de pelo. Orientado manejo com pasta.', hora: '16:20', campos: { queixa: 'Vômito 2x na semana', ambiente: 'Apartamento, só dentro de casa', alimentacao: 'Ração seca premium', peso: '3,9', temperatura: '38,6', fc: '180', fr: '28', tpc: '2', hidratacao: 'Normal', mucosas: 'Normal', oral: 'Normal', pele: 'Pelame com muitos nós no dorso', abdome: 'Normal', suspeita: 'Tricobezoar', exames: 'Hemograma completo\nParasitológico de fezes', tratamento: 'Pasta de malte 3x/semana, escovação diária', anotacoes: 'Tutora vai trocar a escova. Ver na próxima se os nós diminuíram.' }, retorno: d(29) },
+    { id: 'at1', animalId: 'a2', data: d(-1), tipo: 'Consulta domiciliar', resumo: 'Vômito ocasional, bola de pelo. Orientado manejo com pasta.', hora: '16:20', campos: { queixa: 'Vômito 2x na semana', ambiente: 'Apartamento, só dentro de casa', alimentacao: 'Ração seca premium', peso: '3,9', temperatura: '38,6', fc: '180', fr: '28', tpc: '2', hidratacao: 'Normal', mucosas: 'Normal', oral: 'Normal', pele: 'Pelame com muitos nós no dorso', abdome: 'Normal', suspeita: 'Tricobezoar', exames: 'Hemograma completo\nParasitológico de fezes', tratamento: 'Pasta de malte 3x/semana, escovação diária', anotacoes: 'Tutora vai trocar a escova. Ver na próxima se os nós diminuíram.' }, retorno: d(6) },
     { id: 'at4', animalId: 'a2', data: d(-75), hora: '10:00', tipo: 'Check-up (avaliação periódica)', resumo: 'Check-up anual. Gengivite leve.', campos: { queixa: 'Check-up anual', ambiente: 'Apartamento, só dentro de casa', alimentacao: 'Ração seca premium', peso: '3,8', temperatura: '38,4', fc: '170', fr: '26', tpc: '2', hidratacao: 'Normal', mucosas: 'Normal', oral: 'Gengivite leve', pele: 'Normal', abdome: 'Normal', suspeita: 'Gengivite leve', tratamento: 'Escovação dental 3x/semana' } },
     { id: 'at2', animalId: 'a1', data: d(-120), tipo: 'Consulta domiciliar', resumo: 'Otite leve em orelha esquerda.', campos: { queixa: 'Balançando a cabeça', suspeita: 'Otite externa', tratamento: 'Limpeza + otológico 7 dias' } },
     { id: 'at3', animalId: 'a3', data: d(-22), tipo: 'Vacinação', resumo: '1ª dose V8. Filhote ativo, sem alterações.', campos: {} },
@@ -139,6 +139,11 @@ function seedDB() {
     tutores, animais, doses, agenda, atendimentos, orcamentos, lanc, estoque,
     receitas: [], avaliacoes: [{ id: 'av1', tutorId: 't5', nota: 5, texto: 'Atendimento em casa salvou o Fred do estresse!', data: d(-30) }],
     avisos: {},
+    tarefas: [
+      { id: 'tf1', texto: 'Ligar para o laboratório e pedir o resultado do hemograma', data: d(0), feita: false, criada: d(-1) },
+      { id: 'tf2', texto: 'Comprar seringas de 3 ml e algodão', data: d(-1), feita: false, criada: d(-2) },
+      { id: 'tf3', texto: 'Mandar o POP revisado para o mercado', data: d(3), feita: false, criada: d(0) },
+    ],
   };
 }
 
@@ -148,6 +153,6 @@ function seedReal() {
   const s = seedDB();
   return {
     seedVer: SEED_VER, cfg: { ...s.cfg, whats: '(43) 99824-0833' }, tabela: s.tabela, protocolos: s.protocolos, checkupMeses: s.checkupMeses, formulario: s.formulario,
-    tutores: [], animais: [], doses: [], agenda: [], atendimentos: [], orcamentos: [], lanc: [], estoque: [], receitas: [], avaliacoes: [], avisos: {},
+    tutores: [], animais: [], doses: [], agenda: [], atendimentos: [], orcamentos: [], lanc: [], estoque: [], receitas: [], avaliacoes: [], avisos: {}, tarefas: [],
   };
 }

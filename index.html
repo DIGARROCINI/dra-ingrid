@@ -287,6 +287,33 @@ body.tutor .cta-fixa{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bot
 .receita .ass{margin-top:28px;border-top:1px solid var(--tinta);width:60%;margin-left:auto;margin-right:auto;text-align:center;padding-top:4px;font-size:13px}
 
 /* peça 8: dedo não é seta */
+/* painel do Hoje */
+.hero-linha{display:flex;align-items:flex-end;gap:12px}
+.hero-num{display:flex;align-items:center;gap:8px;flex:none;text-decoration:none;color:var(--tinta);background:rgba(255,255,255,.6);border-radius:18px;padding:6px 12px 6px 14px;min-height:64px}
+.hero-num b{font-size:48px;line-height:1;font-weight:700;letter-spacing:-.03em}
+.hero-num b.ok-hero{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--verde-2);color:var(--verde);font-size:0}
+.hero-num span{font-size:13px;font-weight:600;line-height:1.2;color:var(--tinta-lil)}
+.kpis-grade .kpi{display:flex;flex-direction:column;gap:2px;min-height:92px}
+.kpis-grade .kpi .rot{font-weight:600;color:var(--tinta-2)}
+.kpis-grade .kpi b{font-size:24px;font-weight:700;font-variant-numeric:normal;display:flex;align-items:center;gap:4px;margin-top:2px}
+.kpis-grade .kpi .sub{font-size:12px;line-height:1.3}
+.kpi .delta{font-weight:700} .kpi .delta.sobe{color:var(--verde)} .kpi .delta.desce{color:var(--coral-f)}
+.semana{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dia-sem{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0 8px;border-radius:12px;text-decoration:none;color:var(--tinta);position:relative;min-height:44px}
+.dia-sem.hoje{background:var(--lil-3)}
+.dia-sem .q{font-size:12.5px;font-weight:700;min-height:16px}
+.dia-sem .barra-dia{width:18px;height:52px;border-radius:6px;background:var(--lil-2);display:flex;align-items:flex-end;overflow:hidden}
+.dia-sem .barra-dia i{display:block;width:100%;background:var(--lil-f);border-radius:4px 4px 0 0}
+.dia-sem .d{font-size:11.5px;color:var(--tinta-2);text-transform:lowercase}
+.dia-sem .n{font-size:14px;font-weight:700;line-height:1}
+.dia-sem .ped{position:absolute;top:4px;right:2px;background:var(--ambar-2);color:var(--ambar-f);border-radius:99px;font-size:10.5px;font-weight:800;padding:0 5px}
+.item.fazer{align-items:flex-start}
+.ped-leg{background:var(--ambar-2);color:var(--ambar-f);border-radius:99px;font-size:10.5px;font-weight:800;padding:0 5px}
+.ic-fazer{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--lil-2);color:var(--lil-f)}
+.ic-fazer.coral{background:var(--coral-2);color:var(--coral-f)} .ic-fazer.azul{background:var(--azul-2);color:var(--azul-f)} .ic-fazer.ambar{background:var(--ambar-2);color:var(--ambar-f)}
+.tipo-fazer{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-2);margin-bottom:1px}
+.check-tarefa{width:36px;height:36px;display:grid;place-items:center;flex:none;cursor:pointer}
+.check-tarefa input{width:22px;height:22px;accent-color:var(--verde);cursor:pointer}
 /* consulta e histórico clínico */
 .btn-consulta{padding:14px 16px;font-size:16px;border-radius:14px}
 .ultima{background:var(--lil-3);border:1px solid var(--lil-2);border-radius:var(--r);padding:12px 14px;margin-bottom:6px;display:grid;gap:4px}
@@ -328,6 +355,7 @@ textarea.cresce{resize:none;overflow:hidden;min-height:44px}
   input:not([type=checkbox]):not([type=radio]),select{min-height:44px}
   .secao a,a.small,.small a,.tiny a{display:inline-flex;align-items:center;min-height:44px}
   .preco-lin,label.row,button.ant.repetir{min-height:44px}
+  .check-tarefa{width:44px;height:44px}
 }
 @media print{
   body *{visibility:hidden}
