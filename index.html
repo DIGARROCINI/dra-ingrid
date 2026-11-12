@@ -287,13 +287,47 @@ body.tutor .cta-fixa{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bot
 .receita .ass{margin-top:28px;border-top:1px solid var(--tinta);width:60%;margin-left:auto;margin-right:auto;text-align:center;padding-top:4px;font-size:13px}
 
 /* peça 8: dedo não é seta */
+/* consulta e histórico clínico */
+.btn-consulta{padding:14px 16px;font-size:16px;border-radius:14px}
+.ultima{background:var(--lil-3);border:1px solid var(--lil-2);border-radius:var(--r);padding:12px 14px;margin-bottom:6px;display:grid;gap:4px}
+.ultima .tiny{color:var(--lil-f);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.ant{font-size:12.5px;color:var(--tinta-2);margin-top:4px;line-height:1.35}
+.ant.coral{color:var(--coral-f);flex-basis:100%;margin-top:0}
+button.ant.repetir{display:flex;width:100%;gap:8px;justify-content:space-between;align-items:center;text-align:left;border:0;background:none;padding:4px 0;font:inherit;font-size:12.5px;color:var(--tinta-2);cursor:pointer}
+button.ant.repetir b{color:var(--lil-f);text-decoration:underline;flex:none}
+.chips-rola{display:flex;gap:6px;overflow-x:auto;margin-top:8px;padding-bottom:2px;scrollbar-width:none}
+.chips-rola::-webkit-scrollbar{display:none}
+.chips-rola .chip{white-space:nowrap}
+textarea.cresce{resize:none;overflow:hidden;min-height:44px}
+.interruptor{gap:6px;color:var(--tinta);font-weight:600;cursor:pointer}
+.interruptor input{width:20px;height:20px;accent-color:var(--lil-f)}
+.consulta{padding:10px 0;border-top:1px solid var(--linha);display:grid;gap:3px}
+.consulta:first-child{border-top:0;padding-top:2px}
+.comparar{overflow-x:auto;border:1px solid var(--linha);border-radius:12px;-webkit-overflow-scrolling:touch}
+.comparar table{border-collapse:collapse;font-size:13px;min-width:100%}
+.comparar th,.comparar td{padding:8px 10px;border-bottom:1px solid var(--linha);text-align:left;vertical-align:top;min-width:96px}
+.comparar thead th{background:var(--lil-3);color:var(--lil-f);font-weight:700;white-space:nowrap}
+.comparar tbody th{position:sticky;left:0;background:#fff;font-weight:600;color:var(--tinta-2);min-width:118px;box-shadow:1px 0 0 var(--linha)}
+.comparar thead th:first-child{position:sticky;left:0;z-index:1}
+.comparar tr.txt td{min-width:150px}
+.comparar tr:last-child th,.comparar tr:last-child td{border-bottom:0}
+.ok{color:var(--verde);font-weight:600}
+.alt{color:var(--coral-f);font-weight:600}
+.ficha-bloco{border-top:1px solid var(--linha);padding:12px 0 4px}
+.ficha-bloco h3{font-size:12.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--tinta-2);margin:0 0 6px}
+.vital{display:grid;gap:1px;padding:4px 0}
+.vital b{font-size:17px}
+.seta{font-size:12px;font-weight:700}
+.seta.sobe{color:var(--coral-f)} .seta.desce{color:var(--azul-f)}
+.alt-lin{background:var(--coral-2);color:var(--coral-f);border-radius:10px;padding:6px 10px;margin:4px 0}
+.lista-exames{margin:0;padding-left:20px;font-size:14px;line-height:1.6}
 @media (pointer:coarse){
   .btn,.abas button,.chip,.sugs button,.faixa button,.dias button,.seg button{min-height:44px}
   input,select,textarea,button{font-size:16px}
   .btn.mini{min-height:44px;padding:8px 14px}
   input:not([type=checkbox]):not([type=radio]),select{min-height:44px}
   .secao a,a.small,.small a,.tiny a{display:inline-flex;align-items:center;min-height:44px}
-  .preco-lin,label.row{min-height:44px}
+  .preco-lin,label.row,button.ant.repetir{min-height:44px}
 }
 @media print{
   body *{visibility:hidden}

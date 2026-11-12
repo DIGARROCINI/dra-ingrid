@@ -161,7 +161,7 @@ function route(opts = {}) {
       ? '<span>Demonstração · você está vendo o app como <b>tutor</b></span><button onclick="go(\'/\')">Voltar à Ingrid</button>'
       : '<span>Demonstração · dados de exemplo</span><button onclick="go(\'/t\')">Ver como tutor</button>';
   } else nuvStatus(NUV.status);
-  const aba = ({ '': 'hoje', avisos: 'hoje', agenda: 'agenda', clientes: 'clientes', tutor: 'clientes', animal: 'clientes', atender: 'clientes', receita: 'clientes', assistente: 'ia' }[p[0] || ''] || 'mais');
+  const aba = ({ '': 'hoje', avisos: 'hoje', agenda: 'agenda', clientes: 'clientes', tutor: 'clientes', animal: 'clientes', atender: 'clientes', receita: 'clientes', exames: 'clientes', assistente: 'ia' }[p[0] || ''] || 'mais');
   $('#rail').innerHTML = '<div class="rail-marca"><img src="simbolo.png" alt="">Dra. Ingrid</div>' +
     [['hoje', '/', 'Hoje', 'house'], ['agenda', '/agenda', 'Agenda', 'calendar'], ['clientes', '/clientes', 'Clientes', 'users'], ['ia', '/assistente', 'Assistente', 'sparkles'], ['mais', '/mais', 'Mais', 'ellipsis']]
       .map(([k, href, t, i]) => `<a href="#${href}" class="${aba === k ? 'on' : ''}" ${aba === k ? 'aria-current="page"' : ''}>${ic(i)}${t}</a>`).join('');
@@ -371,12 +371,13 @@ function editarDose(did) {
 }
 function editarAtendimento(atid) {
   const x = DB.atendimentos.find(y => y.id === atid); if (!x) return;
-  const chaves = [...new Set(['queixa', ...VITAIS, ...ANAMNESE.filter(k => (x.campos || {})[k]), ...SISTEMAS.filter(k => (x.campos || {})[k]), ...Object.keys(x.campos || {}), ...CONCLUSOES])];
+  const chaves = [...new Set(['queixa', ...VITAIS, ...ANAMNESE, ...SISTEMAS.filter(k => (x.campos || {})[k]), ...Object.keys(x.campos || {}).filter(k => k !== 'anotacoes'), ...CONCLUSOES, 'anotacoes'])];
   abrirFicha('Editar consulta', () => DB.atendimentos.find(y => y.id === atid), [
     { k: 'data', rot: 'Data', tipo: 'date', obrig: true, meia: true }, { k: 'tipo', rot: 'Tipo', tipo: 'select', ops: TIPOS_AT, meia: true },
     { k: 'resumo', rot: 'Resumo (aparece no histórico)', tipo: 'area', linhas: 2 },
     { sep: 'Ficha clínica' },
-    ...chaves.map(k => ({ k: 'campos.' + k, rot: ROTULO[k] || k, tipo: VITAIS.includes(k) ? 'text' : 'area', linhas: 2, meia: VITAIS.includes(k) })),
+    ...chaves.map(k => ({ k: 'campos.' + k, rot: ROTULO[k] || k, tipo: VITAIS.includes(k) ? 'text' : 'area', linhas: k === 'anotacoes' ? 5 : 2, meia: VITAIS.includes(k) })),
+    { k: 'retorno', rot: 'Retorno combinado', tipo: 'date' },
   ], { sub: esc(animal(x.animalId)?.nome || ''),
        rodape: botaoApagar('Apagar esta consulta', `apagarComDesfazer('Consulta apagada',()=>{DB.atendimentos=DB.atendimentos.filter(y=>y.id!=='${atid}')},'Apagar esta consulta do prontuário?')`) });
 }
@@ -799,13 +800,13 @@ TELAS.agenda = () => {
   <div class="aviso lil small" style="margin-top:14px">O tutor marca pelo link e você confirma. No app real a agenda conversa com o seu Google Agenda nos dois sentidos.</div>
   </main>`;
 };
-function novoHorario({ hora = '10:00', animalId = '', servico = '', data = diaAgenda || isoHoje() } = {}) {
+function novoHorario({ hora = '10:00', animalId = '', servico = '', data = diaAgenda || isoHoje(), obs = '' } = {}) {
   const ops = DB.animais.map(a => `<option value="${a.id}" ${a.id === animalId ? 'selected' : ''}>${esc(a.nome)} — ${esc(tutor(a.tutorId).nome)}</option>`).join('');
   abrirFolha(`<h2>Novo horário</h2>
     <label for="nhA">Animal</label><select id="nhA">${ops}</select>
     <label for="nhS">Serviço</label><select id="nhS">${tabAtiva().filter(t => t.cat !== 'Deslocamento').map(t => `<option value="${t.id}" ${t.id === servico ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select>
     <div class="grid2"><div><label for="nhD">Dia</label><input type="date" id="nhD" value="${data}"></div><div><label for="nhH">Hora</label><input type="time" id="nhH" value="${hora}"></div></div>
-    <label for="nhO">Observação</label><input id="nhO" placeholder="Ex.: levar balança">
+    <label for="nhO">Observação</label><input id="nhO" placeholder="Ex.: levar balança" value="${esc(obs)}">
     <button class="btn full" style="margin-top:16px" onclick="salvarHorario()">Guardar na agenda</button>`);
 }
 function salvarHorario() {
@@ -873,8 +874,11 @@ TELAS.tutor = id => {
   const orc = DB.orcamentos.filter(o => o.tutorId === id).sort((a, b) => b.data.localeCompare(a.data));
   const devendo = orc.filter(o => o.status !== 'pago').reduce((s, o) => s + totalItens(o.itens), 0);
   const fx = tab(t.faixa);
+  const hist = DB.atendimentos.filter(x => an.some(a => a.id === x.animalId)).sort((x, y) => (y.data + (y.hora || '')).localeCompare(x.data + (x.hora || '')));
+  const verTudo = histTutorTudo === id, mostra = verTudo ? hist : hist.slice(0, 4);
   return barra(esc(t.nome), { voltar: '/clientes', sub: `Cliente desde ${dataCurta(t.desde)} · chegou por ${esc(t.origem)}`, acoes: acaoBtn('pencil', 'Editar tutor', `editarTutor('${id}')`) }) + `<main>
-  <div class="acoes" style="grid-template-columns:repeat(3,1fr)">
+  <button class="btn full btn-consulta" onclick="consultaTutor('${id}')">${ic('stethoscope')} Consulta</button>
+  <div class="acoes" style="grid-template-columns:repeat(3,1fr);margin-top:10px">
     <a class="btn wa" target="_blank" rel="noopener" href="${waLink('Olá, ' + t.nome.split(' ')[0] + '! Aqui é a Dra. Ingrid 🐾', t.fone)}">${ic('message-circle')}WhatsApp</a>
     <a class="btn sec" href="tel:${esc(t.fone.replace(/\D/g, ''))}">${ic('phone')}Ligar</a>
     <a class="btn sec" href="${mapsLink(t)}" target="_blank" rel="noopener">${ic('map-pin')}Mapa</a></div>
@@ -889,6 +893,11 @@ TELAS.tutor = id => {
   ${an.map(a => { const atr = DB.doses.some(v => v.animalId === a.id && statusDose(v).k === 'atrasada'); return `<a class="card row" href="#/animal/${a.id}">${avatar(a)}
     <div class="grow"><b>${esc(a.nome)}</b><div class="small muted">${esc(a.raca)} · ${idade(a.nasc)}${pesoAtual(a) ? ' · ' + vg(pesoAtual(a)) + ' kg' : ''}</div></div>
     ${atr ? '<span class="tag coral">vacina atrasada</span>' : ''}${ic('chevron-right')}</a>`; }).join('')}
+  <div class="secao"><h2>Histórico clínico</h2>${hist.length ? `<span class="small muted">${hist.length} consulta${hist.length > 1 ? 's' : ''}</span>` : ''}</div>
+  <div class="card">${hist.length ? mostra.map(x => cartaoConsulta(x, { compacto: true, comAnimal: an.length > 1 })).join('') +
+    (hist.length > mostra.length ? `<button class="btn mini ghost full" style="margin-top:10px" onclick="histTutorTudo='${id}';route({manterScroll:true})">Ver as ${hist.length} consultas</button>` : '') +
+    (an.some(a => consultasDe(a.id).length > 1) ? `<div class="row wrap" style="gap:8px;margin-top:10px">${an.filter(a => consultasDe(a.id).length > 1).map(a => `<button class="btn mini sec" onclick="verHistorico('${a.id}')">${ic('history', 'sm')} Comparar ${esc(a.nome)}</button>`).join('')}</div>` : '')
+    : `<p class="muted small" style="margin:0">Nenhuma consulta ainda. Toque em <b>Consulta</b> lá em cima: a ficha de anamnese, o exame físico, os exames pedidos e as anotações ficam guardados aqui, com data.</p>`}</div>
   ${orc.length ? `<div class="secao"><h2>Orçamentos e cobranças</h2></div><div class="card">${orc.map(o => `<div class="item toca" ${tocavel(`editarOrc('${o.id}')`)}><div class="grow"><b>${brl(totalItens(o.itens))}</b><div class="small muted">${dataCurta(o.data)} · ${esc(animal(o.animalId)?.nome || '')}</div></div>${tagOrc(o)}</div>`).join('')}</div>` : ''}
   </main>`;
 };
@@ -908,7 +917,7 @@ function salvarAnimal(tid) {
 }
 
 /* ---- Animal ---- */
-let abaAnimal = 'tempo';
+let abaAnimal = 'tempo', histTutorTudo = null;
 TELAS.animal = id => {
   const a = animal(id); if (!a) return barra('Animal', { voltar: '/clientes' }) + '<main>Animal não encontrado.</main>';
   const t = tutor(a.tutorId);
@@ -926,12 +935,12 @@ TELAS.animal = id => {
   const cuid = proximasDoses(id, 30).map(v => { const s = statusDose(v); return `<div class="cuidado ${s.k === 'atrasada' ? 'coral' : ''}">${ic('syringe', 'sm')}<span class="grow"><b>${esc(v.vacina)}${v.total > 1 ? ' ' + v.n + '/' + v.total : ''}</b> · ${s.txt}</span><button class="btn mini" onclick="aplicarVacina('${id}','${v.id}')">Aplicar</button></div>`; });
   if (a.checkup && diasAte(a.checkup) <= 30) cuid.push(`<div class="cuidado azul">${ic('clipboard-list', 'sm')}<span class="grow"><b>Check-up</b> · ${diasAte(a.checkup) < 0 ? 'passou ' + quando(a.checkup) : quando(a.checkup)}</span><button class="btn mini" onclick="novoHorario({animalId:'${id}',servico:'s3'})">Marcar</button></div>`);
   const nArq = anexosDe(id).length;
-  const abas = [['tempo', 'Histórico'], ['arquivos', 'Arquivos' + (nArq ? ' · ' + nArq : '')], ['vacinas', 'Vacinas'], ['atend', 'Consultas'], ['peso', 'Peso']];
+  const abas = [['tempo', 'Linha do tempo'], ['atend', 'Histórico clínico' + (ats.length ? ' · ' + ats.length : '')], ['arquivos', 'Arquivos' + (nArq ? ' · ' + nArq : '')], ['vacinas', 'Vacinas'], ['peso', 'Peso']];
   let corpo = '';
   if (abaAnimal === 'tempo') corpo = tempo.length ? tempo.map(e => `<div class="item toca" ${tocavel(e.on)}><div class="ava" style="background:var(--lil-3)">${ic(e.ic)}</div><div class="grow"><b>${esc(e.t)}</b><div class="small muted">${dataCurta(e.d)}${e.s ? ' · ' + esc(e.s) : ''}</div></div></div>`).join('') : '<p class="muted" style="margin:0">Nada registrado ainda.</p>';
   if (abaAnimal === 'vacinas') corpo = (vs.length ? vs.map(v => { const s = statusDose(v); return `<div class="item toca" ${tocavel(`editarDose('${v.id}')`)}><div class="grow"><b>${esc(v.vacina)}</b> <span class="muted small">${v.total > 1 ? 'dose ' + v.n + '/' + v.total + ' · ' : ''}${v.protocolo === 'filhote' ? 'protocolo filhote' : 'anual'}</span><div class="small muted">${dataCurta(v.data)}${v.lote ? ' · lote ' + esc(v.lote) : ''}</div></div><span class="tag ${s.cls}">${s.txt}</span></div>`; }).join('') : '<p class="muted" style="margin:0">Sem vacinas.</p>') +
     `<div class="row" style="margin-top:12px"><button class="btn mini" onclick="aplicarVacina('${id}')">Aplicar vacina</button><button class="btn mini ghost" onclick="iniciarProtocoloUI('${id}')">Iniciar protocolo</button></div>`;
-  if (abaAnimal === 'atend') corpo = ats.length ? ats.map(x => `<details><summary>${dataCurta(x.data)} · ${esc(x.tipo)}</summary><div><p style="margin-top:0">${esc(x.resumo)}</p><button class="btn mini ghost editar" style="margin-bottom:8px" onclick="editarAtendimento('${x.id}')">${ic('pencil', 'sm')} Editar</button>${Object.entries(x.campos || {}).filter(([, v]) => v).map(([k, v]) => `<div class="small"><b>${esc(ROTULO[k] || k)}:</b> ${esc(v)}</div>`).join('')}</div></details>`).join('') : '<p class="muted" style="margin:0">Nenhum atendimento.</p>';
+  if (abaAnimal === 'atend') corpo = historicoClinicoHTML(id) + `<a class="btn mini" style="margin-top:12px" href="#/atender/${id}">${ic('plus', 'sm')} Nova consulta</a>`;
   if (abaAnimal === 'arquivos') { const ax = anexosDe(id); corpo = `<div class="row wrap" style="gap:8px"><button class="btn mini" onclick="anexar('${id}',{camera:true,tipo:'Lesão'})">${ic('camera', 'sm')} Tirar foto</button><button class="btn mini sec" onclick="anexar('${id}')">${ic('paperclip', 'sm')} Anexar foto ou PDF</button><button class="btn mini ghost" onclick="pedirAoTutor('${id}')">${ic('message-circle', 'sm')} Pedir ao tutor</button></div>
     ${ax.length ? `<div class="galeria">${ax.map(cartaoAnexo).join('')}</div>` : '<p class="small muted" style="margin:12px 0 0">Nada ainda. Fotos de lesão, exames e documentos ficam aqui, com data — os seus e os que o tutor mandar pelo link.</p>'}`; }
   if (abaAnimal === 'peso') { const mx = Math.max(...a.pesos.map(p => p.kg), 1); corpo = a.pesos.length ? a.pesos.map((p, pi) => `<div class="toca" ${tocavel(`editarPeso('${id}',${pi})`)} style="margin:10px 0"><div class="row between small"><span>${dataCurta(p.data)}</span><b>${vg(p.kg)} kg</b></div><div class="barra"><i style="width:${p.kg / mx * 100}%"></i></div></div>`).join('') : '<p class="muted" style="margin:0">Sem pesagens.</p>'; }
@@ -942,7 +951,7 @@ TELAS.animal = id => {
     <button class="btn mini ghost editar" style="margin-top:6px" onclick="editarAnimal('${id}')">${ic('pencil', 'sm')} Editar dados</button></div></div>
     ${cuid.length ? cuid.join('') : `<div class="cuidado" style="background:var(--verde-2);color:var(--verde)">${ic('check', 'sm')}<span class="grow">Vacinas e check-up em dia</span></div>`}
   </div>
-  <div class="acoes" style="margin-top:12px"><a class="btn" href="#/atender/${id}">${ic('stethoscope')}Atender</a><button class="btn sec" onclick="aplicarVacina('${id}')">${ic('syringe')}Vacina</button><a class="btn sec" href="#/receita/${id}">${ic('file-text')}Receita</a><a class="btn sec" href="#/doses/${id}">${ic('scale')}Dose</a></div>
+  <div class="acoes" style="margin-top:12px"><a class="btn" href="#/atender/${id}">${ic('stethoscope')}Consulta</a><button class="btn sec" onclick="aplicarVacina('${id}')">${ic('syringe')}Vacina</button><a class="btn sec" href="#/receita/${id}">${ic('file-text')}Receita</a><a class="btn sec" href="#/doses/${id}">${ic('scale')}Dose</a></div>
   <div class="abas" role="tablist">${abas.map(([k, n]) => `<button role="tab" aria-selected="${abaAnimal === k}" class="${abaAnimal === k ? 'on' : ''}" onclick="abaAnimal='${k}';route({manterScroll:true})">${n}</button>`).join('')}</div>
   <div class="card">${corpo}</div></main>`;
 };
@@ -1008,44 +1017,160 @@ function confirmarVacina(id) {
 const ROTULO = {
   queixa: 'Queixa principal', ambiente: 'Ambiente', alimentacao: 'Alimentação', vacinacao: 'Vacinação', vermifugacao: 'Vermifugação', ectoparasitas: 'Ectoparasitas', reproducao: 'Histórico de reprodução', historia: 'História médica anterior',
   peso: 'Peso (kg)', fc: 'FC (bpm)', fr: 'FR (mpm)', temperatura: 'Temp. (°C)', tpc: 'TPC (seg)', hidratacao: 'Hidratação', mucosas: 'Olhos e mucosas', oral: 'Cavidade oral', orelhas: 'Orelhas/ouvido', linfonodos: 'Linfonodos', pele: 'Pele/pelo', torax: 'Tórax', abdome: 'Abdome', locomotor: 'Músculo-esquelético', nervoso: 'Nervoso', urogenital: 'Urinário/genital',
-  suspeita: 'Suspeita diagnóstica', tratamento: 'Tratamento', exames: 'Exames solicitados', obs: 'Outras observações',
+  suspeita: 'Suspeita diagnóstica', tratamento: 'Tratamento', exames: 'Exames solicitados', obs: 'Outras observações', anotacoes: 'Anotações',
 };
 const VITAIS = ['peso', 'temperatura', 'fc', 'fr', 'tpc'];
 const ANAMNESE = ['ambiente', 'alimentacao', 'vacinacao', 'vermifugacao', 'ectoparasitas', 'reproducao', 'historia'];
 const SISTEMAS = ['hidratacao', 'mucosas', 'oral', 'orelhas', 'linfonodos', 'pele', 'torax', 'abdome', 'locomotor', 'nervoso', 'urogenital'];
 const CONCLUSOES = ['suspeita', 'tratamento', 'exames', 'obs'];
+const DICA_ANAMNESE = { ambiente: 'Casa, apartamento, quintal, acesso à rua, outros animais', alimentacao: 'Ração, comida caseira, petiscos, quantas vezes', vacinacao: 'O que o tutor contou das vacinas', vermifugacao: 'Último vermífugo e quando', ectoparasitas: 'Pulga, carrapato, qual produto usa', reproducao: 'Castrado, cio, cruzas, gestações', historia: 'Doenças, cirurgias, remédios de uso contínuo' };
+// exames mais pedidos na clínica de cães e gatos (atalho: tocar adiciona na lista)
+const EXAMES_COMUNS = ['Hemograma completo', 'Bioquímico renal (ureia e creatinina)', 'Bioquímico hepático (ALT e FA)', 'Glicemia', 'Urinálise (EAS)', 'Parasitológico de fezes', 'Ultrassonografia abdominal', 'Radiografia', 'Citologia', 'Raspado de pele', 'Cultura e antibiograma', 'Teste rápido FIV/FeLV', 'Pesquisa de hemoparasitas', 'Eletrocardiograma', 'Aferição de pressão arterial'];
+
+/* ---- Histórico clínico: cada consulta guardada, para comparar com a próxima ---- */
+const consultasDe = id => DB.atendimentos.filter(x => x.animalId === id).sort((x, y) => (y.data + (y.hora || '')).localeCompare(x.data + (x.hora || '')));
+const alteracoesDe = x => SISTEMAS.filter(k => (x.campos || {})[k] && x.campos[k] !== 'Normal').map(k => [k, x.campos[k]]);
+const normaisDe = x => SISTEMAS.filter(k => (x.campos || {})[k] === 'Normal');
+const listaExames = txt => String(txt || '').split(/\n|;/).map(s => s.replace(/^[\s•\-–·]+/, '').trim()).filter(Boolean);
+const numCampo = v => { const n = parseFloat(String(v || '').replace(',', '.')); return isNaN(n) ? null : n; };
+function setaVital(agora, antes) {   // ↑ ↓ ao lado do sinal vital, comparado com a consulta anterior
+  const a = numCampo(agora), b = numCampo(antes);
+  if (a === null || b === null || a === b) return '';
+  return `<span class="seta ${a > b ? 'sobe' : 'desce'}" title="na consulta anterior: ${esc(antes)}">${a > b ? '↑' : '↓'} antes ${esc(antes)}</span>`;
+}
+function cartaoConsulta(x, { compacto = false, comAnimal = false } = {}) {
+  const c = x.campos || {}, alt = alteracoesDe(x), ex = listaExames(c.exames);
+  const vit = VITAIS.filter(k => c[k]).map(k => `${ROTULO[k].replace(/ \(.*\)/, '')} ${esc(c[k])}`).join(' · ');
+  return `<div class="consulta toca" ${tocavel(`verConsulta('${x.id}')`)}>
+    ${comAnimal ? `<div class="tiny muted">${esc(animal(x.animalId)?.nome || '')}</div>` : ''}
+    <div class="row between"><b>${dataCurta(x.data)} · ${esc(x.tipo)}</b>${ic('chevron-right', 'sm')}</div>
+    ${c.queixa ? `<div class="small"><span class="muted">Queixa:</span> ${esc(c.queixa)}</div>` : ''}
+    ${c.suspeita ? `<div class="small"><span class="muted">Suspeita:</span> ${esc(c.suspeita)}</div>` : ''}
+    ${!compacto && vit ? `<div class="tiny muted">${vit}</div>` : ''}
+    ${alt.length || ex.length ? `<div class="sugs" style="margin-top:6px">${alt.map(([k]) => `<span class="tag coral">${esc(ROTULO[k])}</span>`).join('')}${ex.length ? `<span class="tag azul">${ic('flask-conical', 'sm')} ${ex.length} exame${ex.length > 1 ? 's' : ''}</span>` : ''}</div>` : ''}
+    ${!c.queixa && !c.suspeita && !alt.length && x.resumo ? `<div class="small muted">${esc(x.resumo)}</div>` : ''}
+  </div>`;
+}
+// tabela lado a lado: as últimas consultas em colunas, para bater o olho e comparar
+function comparativoHTML(id, n = 5) {
+  const cs = consultasDe(id).slice(0, n);
+  if (cs.length < 2) return '';
+  const linhas = [
+    ...VITAIS.filter(k => cs.some(x => (x.campos || {})[k])).map(k => [ROTULO[k], x => esc((x.campos || {})[k] || '—'), '']),
+    ...SISTEMAS.filter(k => cs.some(x => (x.campos || {})[k] && x.campos[k] !== 'Normal')).map(k => [ROTULO[k], x => { const v = (x.campos || {})[k]; return !v ? '—' : v === 'Normal' ? '<span class="ok">Normal</span>' : `<span class="alt">${esc(v)}</span>`; }, '']),
+    ...(cs.some(x => (x.campos || {}).suspeita) ? [['Suspeita', x => esc((x.campos || {}).suspeita || '—'), 'txt']] : []),
+    ...(cs.some(x => (x.campos || {}).exames) ? [['Exames pedidos', x => listaExames((x.campos || {}).exames).map(esc).join('<br>') || '—', 'txt']] : []),
+    ...(cs.some(x => (x.campos || {}).tratamento) ? [['Tratamento', x => esc((x.campos || {}).tratamento || '—'), 'txt']] : []),
+  ];
+  if (!linhas.length) return '';
+  return `<div class="comparar"><table><thead><tr><th scope="col">Comparar</th>${cs.map(x => `<th scope="col">${dataCurta(x.data)}</th>`).join('')}</tr></thead>
+    <tbody>${linhas.map(([rot, f, cls]) => `<tr class="${cls}"><th scope="row">${esc(rot)}</th>${cs.map(x => `<td>${f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <p class="tiny muted" style="margin:6px 0 0">Mais recente à esquerda · ${cs.length} consultas · arraste para o lado se não couber.</p>`;
+}
+function historicoClinicoHTML(id) {
+  const cs = consultasDe(id);
+  if (!cs.length) return `<p class="muted" style="margin:0">Nenhuma consulta ainda. Toque em <b>Consulta</b> para abrir a ficha de anamnese — ela fica guardada aqui, com data, para comparar na próxima vez.</p>`;
+  const cmp = comparativoHTML(id);
+  return (cmp ? cmp + '<div style="height:14px"></div>' : '') + cs.map(x => cartaoConsulta(x)).join('');
+}
+function verHistorico(id) {
+  const a = animal(id); if (!a) return;
+  abrirFolha(`<h2>Histórico clínico · ${esc(a.nome)}</h2><p class="small muted" style="margin:0 0 10px">Toque numa consulta para ver a ficha inteira.</p>${historicoClinicoHTML(id)}`);
+}
+function verConsulta(atid) {
+  const x = DB.atendimentos.find(y => y.id === atid); if (!x) return toast('Não achei essa consulta');
+  const a = animal(x.animalId), c = x.campos || {};
+  const anteriores = consultasDe(x.animalId).filter(y => (y.data + (y.hora || '')) < (x.data + (x.hora || '')));
+  const ant = anteriores[0] ? anteriores[0].campos || {} : {};
+  const bloco = (titulo, corpo) => corpo ? `<div class="ficha-bloco"><h3>${titulo}</h3>${corpo}</div>` : '';
+  const linha = k => c[k] ? `<div class="small" style="margin:4px 0"><b>${esc(ROTULO[k])}:</b> ${esc(c[k])}</div>` : '';
+  const alt = alteracoesDe(x), nor = normaisDe(x), ex = listaExames(c.exames);
+  const arqs = anexosDe(x.animalId).filter(y => y.data === x.data);
+  abrirFolha(`<h2>Consulta de ${x.data.split('-').reverse().join('/')}</h2>
+    <p class="small muted" style="margin:0 0 6px">${esc(a?.nome || '')} · ${esc(x.tipo)}${x.hora ? ' · ' + esc(x.hora) : ''}</p>
+    ${bloco('Sinais vitais', VITAIS.some(k => c[k]) ? `<div class="grid3">${VITAIS.filter(k => c[k]).map(k => `<div class="vital"><span class="tiny muted">${esc(ROTULO[k])}</span><b>${esc(c[k])}</b>${setaVital(c[k], ant[k])}</div>`).join('')}</div>` : '')}
+    ${bloco('Anamnese', linha('queixa') + ANAMNESE.map(linha).join(''))}
+    ${bloco('Exame físico', (alt.length ? alt.map(([k, v]) => `<div class="small alt-lin"><b>${esc(ROTULO[k])}:</b> ${esc(v)}</div>`).join('') : '') + (nor.length ? `<div class="small" style="margin-top:6px"><span class="ok">Normal:</span> ${nor.map(k => esc(ROTULO[k])).join(', ')}</div>` : ''))}
+    ${bloco('Exames solicitados', ex.length ? `<ul class="lista-exames">${ex.map(e => `<li>${esc(e)}</li>`).join('')}</ul>` : '')}
+    ${bloco('Conclusão', ['suspeita', 'tratamento', 'obs'].map(linha).join(''))}
+    ${bloco('Anotações', c.anotacoes ? `<div class="small" style="white-space:pre-wrap">${esc(c.anotacoes)}</div>` : '')}
+    ${x.retorno ? `<div class="aviso lil small" style="margin-top:10px">${ic('calendar', 'sm')} Retorno combinado para <b>${dataCurta(x.retorno)}</b> (${quando(x.retorno)})</div>` : ''}
+    ${arqs.length ? `<div class="small" style="margin-top:10px">${ic('paperclip', 'sm')} ${arqs.length} arquivo${arqs.length > 1 ? 's' : ''} deste dia em <a href="#/animal/${x.animalId}" onclick="abaAnimal='arquivos'">Arquivos</a></div>` : ''}
+    <div class="stack" style="margin-top:14px">
+      ${ex.length ? `<a class="btn full" href="#/exames/${x.id}">${ic('flask-conical')} Pedido de exames</a>` : ''}
+      <button class="btn sec full" onclick="editarAtendimento('${x.id}')">${ic('pencil')} Editar esta ficha</button>
+      ${consultasDe(x.animalId).length > 1 ? `<button class="btn ghost full" onclick="verHistorico('${x.animalId}')">${ic('history')} Comparar com as outras consultas</button>` : ''}
+    </div>`);
+}
+// botão Consulta da ficha do cliente: 1 animal vai direto; mais de um, pergunta qual
+function consultaTutor(tid) {
+  const an = DB.animais.filter(a => a.tutorId === tid);
+  if (!an.length) { toast('Cadastre o animal primeiro'); return novoAnimal(tid); }
+  if (an.length === 1) return go('/atender/' + an[0].id);
+  abrirFolha(`<h2>Consulta de quem?</h2><div class="card" style="margin-top:8px">${an.map(a => { const u = consultasDe(a.id)[0]; return `<div class="item toca" ${tocavel(`fecharFolha();go('/atender/${a.id}')`)}>${avatar(a)}<div class="grow"><b>${esc(a.nome)}</b><div class="small muted">${u ? 'Última consulta ' + dataCurta(u.data) + ' (' + quando(u.data) + ')' : 'Primeira consulta'}</div></div>${ic('chevron-right')}</div>`; }).join('')}</div>
+    <button class="btn ghost full" style="margin-top:12px" onclick="novoAnimal('${tid}')">${ic('plus')} Outro animal</button>`);
+}
 
 TELAS.atender = (id, gid) => {
-  const a = animal(id); if (!a) return barra('Atender', { voltar: '/clientes' }) + '<main>Animal não encontrado.</main>';
+  const a = animal(id); if (!a) return barra('Consulta', { voltar: '/clientes' }) + '<main>Animal não encontrado.</main>';
   const t = tutor(a.tutorId), g = gid ? DB.agenda.find(x => x.id === gid) : null;
   const pend = proximasDoses(id, 30);
   const servicos = tabAtiva().filter(x => x.cat === 'Serviços');
   const marcado = s => g ? (g.servico === s.id || (g.extras || []).includes(s.id)) : s.id === 's1';
   const tipoIni = g && g.servico === 's3' ? 'Check-up (avaliação periódica)' : g && tab(g.servico)?.vacina ? 'Vacinação' : 'Consulta domiciliar';
-  return barra(`Atender ${esc(a.nome)}`, { voltar: '/animal/' + id, sub: `${esc(t.nome)} · ${esc(t.bairro)}` }) + `<main class="com-cta" id="formAt">
+  const cs = consultasDe(id), u = cs[0], uc = u ? u.campos || {} : {};
+  const uAlt = u ? alteracoesDe(u) : [], uEx = u ? listaExames(uc.exames) : [];
+  const antes = k => uc[k] ? `<button type="button" class="ant repetir" onclick="repetirAnt('${k}')" aria-label="Repetir a resposta da última consulta: ${esc(uc[k])}"><span>Última vez: ${esc(uc[k])}</span><b>repetir</b></button>` : '';
+  const exChips = [...new Set([...tabAtiva().filter(x => x.cat === 'Exames').map(x => x.nome), ...EXAMES_COMUNS])];
+  const area = (c, linhas = 2, ph = '') => `<div class="campo-mic"><textarea id="f_${c}" data-campo="${c}" rows="${linhas}"${ph ? ` placeholder="${esc(ph)}"` : ''}></textarea>${micBtn('#f_' + c)}</div>`;
+  return barra(`Consulta · ${esc(a.nome)}`, { voltar: '/animal/' + id, sub: `${esc(t.nome)} · ${esc(t.bairro)}`, acoes: cs.length ? acaoBtn('history', 'Ver histórico clínico', `verHistorico('${id}')`) : '' }) + `<main class="com-cta" id="formAt">
+  ${u ? `<div class="ultima">
+    <div class="row between" style="align-items:flex-start"><div><div class="tiny">Última consulta · ${dataCurta(u.data)} (${quando(u.data)})</div><b>${esc(u.tipo)}</b></div>
+      <button type="button" class="btn mini ghost" onclick="verConsulta('${u.id}')">Ver ficha</button></div>
+    ${uc.queixa ? `<div class="small"><span class="muted">Queixa:</span> ${esc(uc.queixa)}</div>` : ''}
+    ${uAlt.length ? `<div class="small"><span class="muted">Alterado:</span> ${uAlt.map(([k, v]) => `<b>${esc(ROTULO[k])}:</b> ${esc(v)}`).join(' · ')}</div>` : ''}
+    ${uc.suspeita ? `<div class="small"><span class="muted">Suspeita:</span> ${esc(uc.suspeita)}</div>` : ''}
+    ${uEx.length ? `<div class="small"><span class="muted">Exames pedidos:</span> ${uEx.map(esc).join(', ')}</div>` : ''}
+    ${uc.tratamento ? `<div class="small"><span class="muted">Tratamento:</span> ${esc(uc.tratamento)}</div>` : ''}
+    ${cs.length > 1 ? `<button type="button" class="btn mini sec" style="margin-top:8px" onclick="verHistorico('${id}')">${ic('history', 'sm')} Comparar as ${cs.length} consultas</button>` : ''}
+  </div>` : `<div class="aviso lil small">Primeira consulta de ${esc(a.nome)} no app. Ao finalizar, a ficha fica no <b>histórico clínico</b> para comparar na próxima vez.</div>`}
   <label for="atTipo">Tipo de atendimento</label><select id="atTipo">${TIPOS_AT.map(x => `<option ${x === tipoIni ? 'selected' : ''}>${x}</option>`).join('')}</select>
 
   <div class="secao"><h2>Sinais vitais</h2></div>
-  <div class="card"><div class="grid3" style="margin-top:-12px">${VITAIS.map(c => `<div><label for="f_${c}">${ROTULO[c]}</label><input id="f_${c}" data-campo="${c}" inputmode="decimal"></div>`).join('')}</div></div>
+  <div class="card"><div class="grid3" style="margin-top:-12px">${VITAIS.map(c => `<div><label for="f_${c}">${ROTULO[c]}</label><input id="f_${c}" data-campo="${c}" inputmode="decimal">${uc[c] ? `<div class="ant">antes ${esc(uc[c])}</div>` : ''}</div>`).join('')}</div></div>
 
-  <div class="secao"><h2>Queixa principal</h2></div>
-  <div class="campo-mic"><textarea id="f_queixa" data-campo="queixa" rows="3" aria-label="Queixa principal" placeholder="O que o tutor contou — toque no microfone para ditar"></textarea>${micBtn('#f_queixa')}</div>
-  <details><summary>Mais perguntas da anamnese</summary><div>${ANAMNESE.map(c => `<label for="f_${c}">${ROTULO[c]}</label><input id="f_${c}" data-campo="${c}">`).join('')}</div></details>
+  <div class="secao"><h2>Ficha de anamnese</h2>${u && ANAMNESE.some(k => uc[k]) ? `<button type="button" class="btn mini ghost" onclick="repetirAnamnese()">${ic('undo-2', 'sm')} Trazer da última</button>` : ''}</div>
+  <div class="card" style="padding-top:2px">
+    <label for="f_queixa">Queixa principal</label>${area('queixa', 3, 'O que o tutor contou — toque no microfone para ditar')}
+    ${ANAMNESE.map(c => `<label for="f_${c}">${ROTULO[c]}</label><textarea id="f_${c}" data-campo="${c}" rows="1" class="cresce" placeholder="${esc(DICA_ANAMNESE[c])}"></textarea>${antes(c)}`).join('')}
+  </div>
 
   <div class="secao"><h2>Exame físico</h2><button type="button" class="btn mini ghost" onclick="tudoNormal()">${ic('check', 'sm')} Tudo normal</button></div>
-  <div class="card">${SISTEMAS.map(c => `<div class="sist" data-sist="${c}"><b>${ROTULO[c]}</b><span class="seg" role="group" aria-label="${ROTULO[c]}"><button type="button" class="ok" onclick="marcarSist('${c}','ok')">Normal</button><button type="button" class="alt" onclick="marcarSist('${c}','alt')">Alterado</button></span><input data-alt="${c}" placeholder="Descreva a alteração" aria-label="Alteração em ${ROTULO[c]}" hidden></div>`).join('')}</div>
+  <div class="card">${SISTEMAS.map(c => `<div class="sist" data-sist="${c}"><b>${ROTULO[c]}</b><span class="seg" role="group" aria-label="${ROTULO[c]}"><button type="button" class="ok" onclick="marcarSist('${c}','ok')">Normal</button><button type="button" class="alt" onclick="marcarSist('${c}','alt')">Alterado</button></span><input data-alt="${c}" placeholder="Descreva a alteração" aria-label="Alteração em ${ROTULO[c]}" hidden>${uc[c] && uc[c] !== 'Normal' ? `<div class="ant coral">Na última: ${esc(uc[c])}</div>` : ''}</div>`).join('')}</div>
 
-  <div class="secao"><h2>Fotos e exames</h2><span class="small muted">vão para Arquivos do ${esc(a.nome)}</span></div>
+  <div class="secao"><h2>Fotos e resultados</h2><span class="small muted">vão para Arquivos ${a.sexo === 'Fêmea' ? 'da' : 'do'} ${esc(a.nome)}</span></div>
   <div class="card"><div class="row wrap" style="gap:8px"><button type="button" class="btn mini" onclick="anexar('${id}',{camera:true,tipo:'Lesão',depois:atFotos})">${ic('camera', 'sm')} Tirar foto</button><button type="button" class="btn mini sec" onclick="anexar('${id}',{depois:atFotos})">${ic('paperclip', 'sm')} Anexar</button></div>
     <div class="galeria" id="atGaleria">${anexosDe(id).filter(x => x.data === isoHoje()).map(cartaoAnexo).join('')}</div></div>
 
-  <div class="secao"><h2>Conclusões</h2></div>
-  <div class="card" style="padding-top:2px">${CONCLUSOES.map(c => `<label for="f_${c}">${ROTULO[c]}</label><div class="campo-mic"><textarea id="f_${c}" data-campo="${c}" rows="2"></textarea>${micBtn('#f_' + c)}</div>`).join('')}</div>
+  <div class="secao"><h2>Conclusão</h2></div>
+  <div class="card" style="padding-top:2px">
+    <label for="f_suspeita">${ROTULO.suspeita}</label>${area('suspeita')}
+    <label for="f_tratamento">${ROTULO.tratamento}</label>${area('tratamento')}
+    <label for="f_exames">${ROTULO.exames}</label>${area('exames', 3, 'Um por linha — ou toque nos atalhos abaixo')}
+    <div class="chips-rola" id="exChips" aria-label="Atalhos de exames">${exChips.map(n => `<button type="button" class="chip" data-ex="${esc(n)}" onclick="alternarExame(this)">${esc(n)}</button>`).join('')}</div>
+    <label for="f_obs">${ROTULO.obs}</label>${area('obs')}
+    <label for="atRetorno">Retorno</label>
+    <div class="chips-rola">${[7, 15, 30, 60].map(n => `<button type="button" class="chip" data-ret="${n}" onclick="marcarRetorno(${n})">Em ${n} dias</button>`).join('')}<button type="button" class="chip" data-ret="0" onclick="marcarRetorno(0)">Sem retorno</button></div>
+    <input type="date" id="atRetorno" style="margin-top:8px" aria-label="Data do retorno">
+  </div>
+
+  <div class="secao"><h2>Anotações</h2><span class="small muted">não vão para o tutor</span></div>
+  ${area('anotacoes', 5, 'Página livre: o que você observou, o que combinou com o tutor, lembretes para a próxima consulta')}
 
   ${pend.length ? `<div class="secao"><h2>Vacinas desta visita</h2></div><div class="card">${pend.map(v => `<label class="row" style="margin:6px 0;color:var(--tinta);font-weight:500"><input type="checkbox" data-dose="${v.id}" ${g && tab(g.servico)?.vacina === v.vacina ? 'checked' : ''}> <span class="grow">${esc(v.vacina)} ${v.total > 1 ? v.n + '/' + v.total : ''}</span><span class="tag ${statusDose(v).cls}">${statusDose(v).txt}</span></label>`).join('')}</div>` : ''}
 
-  <div class="secao"><h2>Cobrança</h2><span class="small muted">vira orçamento para o tutor</span></div>
-  <div class="card">
+  <div class="secao"><h2>Cobrança</h2><label class="row interruptor" for="atCobrar"><input type="checkbox" id="atCobrar" checked> <span class="small">Cobrar nesta consulta</span></label></div>
+  <div class="card" id="atCobranca">
     ${servicos.map(s => `<label class="preco-lin"><input type="checkbox" data-item="${s.id}" ${marcado(s) ? 'checked' : ''}><span>${esc(s.nome)} ${s.exemplo ? '<span class="exemplo">exemplo</span>' : ''}</span><b>${brl(s.preco)}</b></label>`).join('')}
     <label class="preco-lin"><input type="checkbox" data-item="${t.faixa}" checked><span>${esc(tab(t.faixa)?.nome || 'Deslocamento')} <span class="exemplo">exemplo</span></span><b>${brl(tab(t.faixa)?.preco)}</b></label>
     <div id="atExtras"></div>
@@ -1053,11 +1178,51 @@ TELAS.atender = (id, gid) => {
     <select id="atAdd"><option value="">+ Adicionar da tabela de valores</option>${catsTabela().filter(c => !['Serviços', 'Deslocamento', 'Vacinas'].includes(c)).map(c => { const it = tabAtiva().filter(x => x.cat === c); return it.length ? `<optgroup label="${esc(c)}">${it.map(x => `<option value="${x.id}">${esc(x.nome)} · ${brl(x.preco)}${x.unidade ? ' por ' + esc(x.unidade) : ''}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>
     <p class="tiny muted" style="margin:6px 0 0">Não achou? Crie em Mais → Tabela de valores.</p>
   </div>
+  <p class="small muted" id="atSemCob" style="display:none;margin:0">Sem cobrança: a ficha vai só para o histórico clínico. Dá para cobrar depois em Financeiro.</p>
   <p class="tiny muted" style="text-align:center;margin-top:14px">O rascunho se guarda sozinho neste aparelho enquanto você preenche.</p>
   </main>
-  <div class="cta-fixa"><div class="in"><div class="grow"><div class="tiny muted">Total da visita</div><b id="atTotal" style="font-size:20px"></b></div>
-    <button class="btn" onclick="salvarAtendimento('${id}','${gid || ''}')">${ic('check')} Finalizar visita</button></div></div>`;
+  <div class="cta-fixa"><div class="in"><div class="grow"><div class="tiny muted" id="atTotRot">Total da visita</div><b id="atTotal" style="font-size:20px"></b></div>
+    <button class="btn" id="atSalvar" onclick="salvarAtendimento('${id}','${gid || ''}')">${ic('check')} <span>Finalizar consulta</span></button></div></div>`;
 };
+function repetirAnt(k) {   // copia a resposta da última consulta para o campo de hoje
+  const u = consultasDe(rascId)[0], el = document.querySelector(`[data-campo="${k}"]`);
+  if (!u || !el || !(u.campos || {})[k]) return;
+  el.value = u.campos[k]; crescer(el); el.dispatchEvent(new Event('input', { bubbles: true })); el.focus();
+}
+function repetirAnamnese() {
+  const u = consultasDe(rascId)[0]; if (!u) return;
+  let n = 0;
+  ANAMNESE.forEach(k => { const el = document.querySelector(`[data-campo="${k}"]`), v = (u.campos || {})[k]; if (el && v && !el.value.trim()) { el.value = v; crescer(el); n++; } });
+  guardarRascunho();
+  toast(n ? `${n} resposta${n > 1 ? 's' : ''} trazida${n > 1 ? 's' : ''} da última consulta — confira e mude o que mudou` : 'Os campos já estão preenchidos');
+}
+function crescer(el) { if (!el || el.tagName !== 'TEXTAREA' || !el.classList.contains('cresce')) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight + 2, 260) + 'px'; }
+function marcarChipsExames() {
+  const tem = listaExames($('#f_exames')?.value).map(x => x.toLowerCase());
+  document.querySelectorAll('[data-ex]').forEach(b => { const on = tem.includes(b.dataset.ex.toLowerCase()); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+}
+function alternarExame(b) {
+  const ta = $('#f_exames'), nome = b.dataset.ex, itens = listaExames(ta.value);
+  const i = itens.findIndex(x => x.toLowerCase() === nome.toLowerCase());
+  if (i >= 0) itens.splice(i, 1); else itens.push(nome);
+  ta.value = itens.join('\n');
+  marcarChipsExames(); guardarRascunho();
+}
+function marcarRetorno(n) {
+  $('#atRetorno').value = n ? isoMais(isoHoje(), n) : '';
+  marcarChipsRetorno(); guardarRascunho();
+}
+function marcarChipsRetorno() {
+  const v = $('#atRetorno')?.value || '';
+  document.querySelectorAll('[data-ret]').forEach(b => { const n = +b.dataset.ret, on = n ? v === isoMais(isoHoje(), n) : !v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+}
+function atCobrancaUI() {
+  const on = $('#atCobrar').checked;
+  $('#atCobranca').hidden = !on;
+  $('#atSemCob').style.display = on ? 'none' : '';
+  $('#atTotRot').textContent = on ? 'Total da visita' : 'Sem cobrança';
+  $('#atSalvar span').textContent = on ? 'Finalizar consulta' : 'Salvar consulta';
+}
 function marcarSist(c, estado) {
   const el = document.querySelector(`[data-sist="${c}"]`), atual = el.dataset.estado;
   el.dataset.estado = atual === estado ? '' : estado;
@@ -1087,6 +1252,8 @@ function lerForm() {
   r.qtd = {}; document.querySelectorAll('[data-qtd]').forEach(q => { const n = numBR(q.value); if (n > 0) r.qtd[q.dataset.qtd] = n; });
   r.extras = [...document.querySelectorAll('[data-extra]')].map(e => e.dataset.extra);
   document.querySelectorAll('[data-dose]:checked').forEach(c => r.doses.push(c.dataset.dose));
+  r.retorno = $('#atRetorno')?.value || '';
+  r.cobrar = $('#atCobrar') ? $('#atCobrar').checked : true;
   return r;
 }
 function guardarRascunho() { if (!rascId || !$('#formAt')) return; try { localStorage.setItem(RASC_K + rascId, JSON.stringify(lerForm())); } catch (e) { } }
@@ -1096,64 +1263,110 @@ TELAS.atender.depois = (id) => {
     let s = 0;
     document.querySelectorAll('[data-item]').forEach(c => { if (!c.checked) return; const q = document.querySelector(`[data-qtd="${c.dataset.item}"]`); s += (tab(c.dataset.item)?.preco || 0) * (q ? (numBR(q.value) || 1) : 1); });
     document.querySelectorAll('[data-dose]').forEach(c => { if (c.checked) { const v = DB.doses.find(d => d.id === c.dataset.dose); s += DB.tabela.find(x => x.vacina === v.vacina)?.preco || 0; } });
-    $('#atTotal').textContent = brl(s);
+    $('#atTotal').textContent = $('#atCobrar') && !$('#atCobrar').checked ? '—' : brl(s);
   };
   // recupera o rascunho, se houver
   let r = null; try { r = JSON.parse(localStorage.getItem(RASC_K + id)); } catch (e) { }
-  if (r && (Object.keys(r.campos).length || Object.keys(r.sist).length || (r.extras || []).length)) {
+  if (r && (Object.keys(r.campos).length || Object.keys(r.sist).length || (r.extras || []).length || r.retorno)) {
     $('#atTipo').value = r.tipo;
     (r.extras || []).forEach(x => atAddExtra(x, (r.qtd || {})[x] || 1));
     Object.entries(r.campos).forEach(([k, v]) => { const e = document.querySelector(`[data-campo="${k}"]`); if (e) e.value = v; });
     Object.entries(r.sist).forEach(([k, [est, txt]]) => { marcarSist(k, est); document.querySelector(`[data-alt="${k}"]`).value = txt; });
     document.querySelectorAll('[data-item]').forEach(c => c.checked = r.itens.includes(c.dataset.item));
     document.querySelectorAll('[data-dose]').forEach(c => c.checked = r.doses.includes(c.dataset.dose));
-    if (Object.keys(r.campos).some(k => ANAMNESE.includes(k))) document.querySelector('details').open = true;
+    if (r.retorno) $('#atRetorno').value = r.retorno;
+    if (r.cobrar === false) $('#atCobrar').checked = false;
     toast('Rascunho recuperado', () => { localStorage.removeItem(RASC_K + id); route(); });
   }
   $('#atAdd').addEventListener('change', e => { if (e.target.value) { atAddExtra(e.target.value); e.target.value = ''; soma(); guardarRascunho(); } });
-  $('#formAt').addEventListener('input', () => { soma(); guardarRascunho(); });
-  $('#formAt').addEventListener('change', () => { soma(); guardarRascunho(); });
+  $('#formAt').addEventListener('input', e => { crescer(e.target); if (e.target.id === 'f_exames') marcarChipsExames(); if (e.target.id === 'atRetorno') marcarChipsRetorno(); soma(); guardarRascunho(); });
+  $('#formAt').addEventListener('change', e => { if (e.target.id === 'atCobrar') atCobrancaUI(); if (e.target.id === 'atRetorno') marcarChipsRetorno(); soma(); guardarRascunho(); });
+  document.querySelectorAll('textarea.cresce').forEach(crescer);
+  marcarChipsExames(); marcarChipsRetorno(); atCobrancaUI();
   soma();
 };
 function salvarAtendimento(id, gid) {
   const a = animal(id), f = lerForm(), campos = { ...f.campos };
   SISTEMAS.forEach(c => { const s = f.sist[c]; if (s) campos[c] = s[0] === 'ok' ? 'Normal' : (s[1] || 'Alterado'); });
-  const itens = f.itens.map(t => ({ tab: t, qtd: (f.qtd && f.qtd[t]) || 1 }));
+  if (!Object.keys(campos).length && !f.doses.length && !confirm('A ficha está vazia. Salvar mesmo assim?')) return;
+  const cobrar = f.cobrar !== false;
+  const itens = cobrar ? f.itens.map(t => ({ tab: t, qtd: (f.qtd && f.qtd[t]) || 1 })) : [];
   const foto = JSON.stringify(DB);
   const vacs = [];
   f.doses.forEach(did => {
     const v = DB.doses.find(d => d.id === did);
     const e = DB.estoque.find(x => x.tipo === 'Vacina' && x.nome.startsWith(v.vacina));
     registrarDose(id, 'dose:' + v.id, e ? e.id : '');
-    const t = DB.tabela.find(x => x.vacina === v.vacina); if (t) itens.push({ tab: t.id, qtd: 1 });
+    const t = DB.tabela.find(x => x.vacina === v.vacina); if (t && cobrar) itens.push({ tab: t.id, qtd: 1 });
     vacs.push(v.vacina);
   });
   const kg = parseFloat((campos.peso || '').replace(',', '.'));
   if (kg) a.pesos.push({ data: isoHoje(), kg });
   if (/Check-up/.test(f.tipo)) a.checkup = isoMais(isoHoje(), DB.checkupMeses * 30);
   const alterados = SISTEMAS.filter(c => f.sist[c] && f.sist[c][0] === 'alt').map(c => ROTULO[c]);
-  const resumo = [campos.queixa, campos.suspeita && 'Suspeita: ' + campos.suspeita, alterados.length && 'Alterado: ' + alterados.join(', '), vacs.length && 'Vacinas: ' + vacs.join(', ')].filter(Boolean).join(' · ') || f.tipo;
-  DB.atendimentos.push({ id: uid('at'), animalId: id, data: isoHoje(), tipo: f.tipo, resumo, campos });
-  const o = { id: uid('o'), tutorId: a.tutorId, animalId: id, data: isoHoje(), itens, status: 'enviado', forma: '' };
-  DB.orcamentos.push(o);
+  const exames = listaExames(campos.exames);
+  const resumo = [campos.queixa, campos.suspeita && 'Suspeita: ' + campos.suspeita, alterados.length && 'Alterado: ' + alterados.join(', '), exames.length && 'Exames: ' + exames.join(', '), vacs.length && 'Vacinas: ' + vacs.join(', ')].filter(Boolean).join(' · ') || f.tipo;
+  const agora = new Date(), hora = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+  const at = { id: uid('at'), animalId: id, data: isoHoje(), hora, tipo: f.tipo, resumo, campos };
+  if (f.retorno) at.retorno = f.retorno;
+  DB.atendimentos.push(at);
+  const o = itens.length ? { id: uid('o'), tutorId: a.tutorId, animalId: id, data: isoHoje(), itens, status: 'enviado', forma: '', atendimentoId: at.id } : null;
+  if (o) DB.orcamentos.push(o);
   if (gid) { const g = DB.agenda.find(x => x.id === gid); if (g) g.status = 'feito'; }
   salvar();
   localStorage.removeItem(RASC_K + id); rascId = null;
   desfazVisita = foto;
   const t = tutor(a.tutorId);
-  const msg = MODO_REAL
+  const msg = !o ? '' : MODO_REAL
     ? `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nResumo da visita do ${a.nome}:\n` + itens.map(i => `• ${tab(i.tab)?.nome}${qtdItem(i) > 1 ? ' ×' + qtdItem(i) : ''} — ${brl(precoItem(i) * qtdItem(i))}`).join('\n') + `\nTotal: ${brl(totalItens(itens))}\nPode pagar por Pix${DB.cfg.pix ? ' (chave ' + DB.cfg.pix + ')' : ''} ou cartão. Dra. Ingrid 🐾`
     : `Olá, ${t.nome.split(' ')[0]}! Obrigada por hoje 💜\nAqui está o resumo da visita do ${a.nome}, com os valores e as formas de pagamento (Pix ou cartão):\n${linkApp('/t/orcamento/' + o.id)}`;
-  abaAnimal = 'tempo';
+  abaAnimal = 'atend';
   go('/animal/' + id);
   setTimeout(() => {
-    abrirFolha(`<h2>Visita finalizada</h2><p class="muted">Total ${brl(totalItens(itens))}${vacs.length ? ' · vacinas baixadas do estoque' : ''}</p>
-      <div class="stack" style="margin-top:12px"><a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg, t.fone)}">${ic('message-circle')} Mandar resumo e valores no WhatsApp</a>
-      ${MODO_REAL ? '' : `<a class="btn sec full" href="#/t/orcamento/${o.id}">${ic('eye')} Ver o que o tutor recebe</a>`}
-      <button class="btn ghost full" onclick="DB=JSON.parse(desfazVisita);salvar();fecharFolha();route();toast('Visita desfeita')">${ic('undo-2')} Desfazer</button></div>`);
+    abrirFolha(`<h2>${o ? 'Consulta finalizada' : 'Consulta salva'}</h2><p class="muted">${o ? 'Total ' + brl(totalItens(itens)) : 'Sem cobrança'} · ficha guardada no histórico clínico${vacs.length ? ' · vacinas baixadas do estoque' : ''}${at.retorno ? ' · retorno ' + dataCurta(at.retorno) : ''}</p>
+      <div class="stack" style="margin-top:12px">
+      ${o ? `<a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg, t.fone)}">${ic('message-circle')} Mandar resumo e valores no WhatsApp</a>` : ''}
+      ${exames.length ? `<a class="btn ${o ? 'sec' : ''} full" href="#/exames/${at.id}">${ic('flask-conical')} Pedido de exames (${exames.length})</a>` : ''}
+      ${at.retorno ? `<button class="btn sec full" onclick="fecharFolha();novoHorario({animalId:'${id}',data:'${at.retorno}',obs:'Retorno'})">${ic('calendar')} Marcar o retorno na agenda</button>` : ''}
+      ${o && !MODO_REAL ? `<a class="btn sec full" href="#/t/orcamento/${o.id}">${ic('eye')} Ver o que o tutor recebe</a>` : ''}
+      <button class="btn ghost full" onclick="DB=JSON.parse(desfazVisita);salvar();fecharFolha();route();toast('Consulta desfeita')">${ic('undo-2')} Desfazer</button></div>`);
   }, 30);
 }
 let desfazVisita = null;
+
+/* ---- Pedido de exames: documento para o laboratório (imprime ou vira PDF) ---- */
+TELAS.exames = atid => {
+  const x = DB.atendimentos.find(y => y.id === atid);
+  if (!x || !animal(x.animalId)) return barra('Pedido de exames', { voltar: '/clientes' }) + '<main>Consulta não encontrada.</main>';
+  const a = animal(x.animalId), c = x.campos || {};
+  return barra('Pedido de exames', { voltar: '/animal/' + a.id, sub: `${esc(a.nome)} · consulta de ${dataCurta(x.data)}` }) + `<main>
+  <label for="peLista" style="margin-top:0">Exames (um por linha)</label><textarea id="peLista" rows="5">${esc(listaExames(c.exames).join('\n'))}</textarea>
+  <p class="tiny muted" style="margin:4px 0 0">O que você mudar nesta lista também muda na ficha da consulta.</p>
+  <label for="peInfo">Informação clínica para o laboratório <span class="muted">(opcional)</span></label><textarea id="peInfo" rows="2" placeholder="Ex.: suspeita, jejum, medicação em uso">${esc(c.suspeita ? 'Suspeita: ' + c.suspeita : '')}</textarea>
+  <div class="secao"><h2>Prévia</h2></div>
+  <div class="receita" id="pePrevia"></div>
+  <div class="row wrap" style="margin-top:14px;gap:8px"><button class="btn grow" onclick="window.print()">${ic('printer')} Imprimir / PDF</button><a class="btn wa grow" id="peWa" target="_blank" rel="noopener">${ic('message-circle')} Mandar a lista ao tutor</a></div>
+  </main>`;
+};
+TELAS.exames.depois = atid => {
+  const x = DB.atendimentos.find(y => y.id === atid); if (!x || !animal(x.animalId)) return;
+  const a = animal(x.animalId), t = tutor(a.tutorId), c = DB.cfg;
+  const desenha = () => {
+    const ex = listaExames($('#peLista').value), info = $('#peInfo').value.trim();
+    $('#pePrevia').innerHTML = `<h3>SOLICITAÇÃO DE EXAMES</h3>
+      <div class="small"><b>Solicitante:</b> ${esc(c.nome)} · CRMV ${esc(c.crmv)}<br>Atendimento veterinário a domicílio · ${x.data.split('-').reverse().join('/')}</div>
+      <div class="small" style="margin-top:8px"><b>Tutor:</b> ${esc(t.nome)}${t.fone ? ' · ' + esc(t.fone) : ''}<br><b>Paciente:</b> ${esc(a.nome)} · ${esc(a.especie)} · ${esc(a.raca)} · ${esc(a.sexo)} · ${idade(a.nasc)}${pesoAtual(a) ? ' · ' + vg(pesoAtual(a)) + ' kg' : ''}</div>
+      <div style="margin-top:12px"><b>Exames solicitados</b><ol style="margin:6px 0 0 20px;padding:0">${ex.map(e => `<li>${esc(e)}</li>`).join('') || '<li>________________</li>'}</ol></div>
+      ${info ? `<div class="small" style="margin-top:10px"><b>Informação clínica:</b> ${esc(info)}</div>` : ''}
+      <div class="ass">${esc(c.nome)} · CRMV ${esc(c.crmv)}</div>`;
+    const msg = `Olá, ${t.nome.split(' ')[0]}! Aqui é a Dra. Ingrid 🐾\nOs exames que pedi para ${a.sexo === 'Fêmea' ? 'a' : 'o'} ${a.nome}:\n${ex.map(e => '• ' + e).join('\n')}\nQuando sair o resultado, me manda por aqui. Qualquer dúvida, é só chamar!`;
+    $('#peWa').href = waLink(msg, t.fone);
+  };
+  $('#peLista').addEventListener('input', desenha);
+  $('#peInfo').addEventListener('input', desenha);
+  $('#peLista').addEventListener('change', () => { x.campos = x.campos || {}; x.campos.exames = listaExames($('#peLista').value).join('\n'); salvar(); toast('Lista de exames guardada na consulta'); });
+  desenha();
+};
 
 /* ---- Receita ---- */
 TELAS.receita = id => {
@@ -1718,7 +1931,7 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
     <button class="btn ghost full" style="margin-top:12px" onclick="go('/nova-senha')">Trocar minha senha</button>
     <button class="btn ghost full" style="margin-top:8px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.12 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.13 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 function cartaoAcesso() {
   const partes = [];
