@@ -1707,7 +1707,7 @@ function perguntar(p, porVoz = false) {
 
 /* ---- Mais / ADM ---- */
 TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
-  ${[['/financeiro', 'wallet', 'Financeiro', 'Entradas, saídas, a receber'], ['/estoque', 'package', 'Estoque', 'Vacinas, medicamentos, insumos'], ['/doses', 'scale', 'Calcular dose', 'Lista de medicamentos conferida no VetSmart'], ['/avaliacoes', 'star', 'Avaliações', 'O que os tutores acharam'],
+  ${[['/financeiro', 'wallet', 'Financeiro', 'Entradas, saídas, a receber'], ['/estoque', 'package', 'Estoque', 'Vacinas, medicamentos, insumos'], ['/doses', 'scale', 'Calcular dose', 'Lista de medicamentos conferida no VetSmart'], ['/avaliacoes', 'star', 'Avaliações', 'O que os tutores acharam'], ['/rt', 'clipboard-list', 'Documentos de RT', 'Manual de Boas Práticas e POPs dos mercados'],
     ['/adm/tabela', 'tag', 'Tabela de valores', 'Vacinas, consultas, deslocamento'], ['/adm/protocolos', 'shield-check', 'Protocolos de vacina', 'Filhote e anual · check-up'], ['/adm/perfil', 'id-card', 'Meus dados profissionais', 'CRMV, MAPA, Pix, WhatsApp, Google'], ['/t', 'eye', 'Ver como tutor', 'O link que o cliente recebe']]
     .map(([h, i, t, s]) => `<a href="#${h}"><span class="icm">${ic(i)}</span><span class="grow">${t}<small>${s}</small></span>${ic('chevron-right')}</a>`).join('')}
   ${(DB.ajustes || []).length ? `<a href="#/ajustes"><span class="icm">${ic('clipboard-list')}</span><span class="grow">Pedidos de ajuste no app<small>${DB.ajustes.filter(x => x.status === 'novo').length} para o Eugênio</small></span>${ic('chevron-right')}</a>` : ''}
@@ -1718,7 +1718,7 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
     <button class="btn ghost full" style="margin-top:12px" onclick="go('/nova-senha')">Trocar minha senha</button>
     <button class="btn ghost full" style="margin-top:8px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.11 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.12 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 function cartaoAcesso() {
   const partes = [];
