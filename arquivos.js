@@ -8,7 +8,7 @@
    ===================================================== */
 'use strict';
 
-const ARQ_BUCKET = 'arquivos';
+const ARQ_BUCKET = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.bucket) || 'arquivos';
 const ARQ_URL = {};     // caminho → { url, ate }
 const ARQ_LOCAL = {};   // demonstração: caminho → objectURL
 

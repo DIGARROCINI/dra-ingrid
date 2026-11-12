@@ -22,11 +22,18 @@ const NUV = { ultimo: null, pendente: false, puxou: false, status: 'ok', dona: n
 function nuvLer() { try { const s = JSON.parse(localStorage.getItem(NUV_K)) || {}; NUV.ultimo = s.ultimo || null; NUV.pendente = !!s.pendente; NUV.pubHash = s.pubHash || ''; NUV.eid = s.eid || null; } catch (e) { } }
 function nuvGravar() { try { localStorage.setItem(NUV_K, JSON.stringify({ ultimo: NUV.ultimo, pendente: NUV.pendente, pubHash: NUV.pubHash, eid: NUV.eid })); } catch (e) { } }
 
+/* sala: o consultório mora no schema dela dentro do projeto da Ti Artes.
+   Leitura avisa pelo Accept-Profile, escrita e rpc pelo Content-Profile. */
+const SALA = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.sala) || '';
+function salaHeaders(metodo) {
+  if (!SALA) return {};
+  return /^(GET|HEAD)$/i.test(metodo || 'GET') ? { 'Accept-Profile': SALA } : { 'Content-Profile': SALA };
+}
 async function rest(caminho, opts = {}) {
   if (isLoggedIn()) await authEnsure();
   return comPrazo(SUPA_URL + '/rest/v1/' + caminho, {
     ...opts,
-    headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + (authToken() || SUPA_KEY), 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + (authToken() || SUPA_KEY), 'Content-Type': 'application/json', ...salaHeaders(opts.method), ...(opts.headers || {}) },
   });
 }
 

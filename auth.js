@@ -6,7 +6,7 @@
    ===================================================== */
 'use strict';
 
-const AUTH_KEY = 'vetig_sessao_v1';
+const AUTH_KEY = 'vetig_sessao_v2';   // v2 = banco novo (sala no projeto Pro); a sessão do banco antigo não vale lá
 const SUPA_URL = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.supabaseUrl) || '';
 const SUPA_KEY = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.supabaseKey) || '';
 let SESSION = null;   // { access_token, refresh_token, expires_at, user }

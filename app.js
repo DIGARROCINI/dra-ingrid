@@ -1650,7 +1650,7 @@ async function perguntarIA(p, porVoz) {
   const ctrl = new AbortController(), corta = setTimeout(() => ctrl.abort(), 90000);
   try {
     await authEnsure();
-    const r = await fetch(SUPA_URL + '/functions/v1/assistente', { method: 'POST', signal: ctrl.signal, headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ mensagens: hist, hoje: isoHoje(), eid: NUV.eid }) });
+    const r = await fetch(SUPA_URL + '/functions/v1/' + (APP_CONFIG.funcao || 'assistente'), { method: 'POST', signal: ctrl.signal, headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ mensagens: hist, hoje: isoHoje(), eid: NUV.eid }) });
     if (!r.ok || !r.body) throw new Error(r.status === 403 ? 'sem_acesso' : r.status === 404 ? 'sem_funcao' : r.status === 503 ? 'chave_invalida' : 'http ' + r.status);
     const leitor = r.body.getReader(), dec = new TextDecoder();
     let buf = '';
@@ -1715,9 +1715,10 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
   </div>
   ${MODO_REAL ? cartaoAcesso() : ''}
   ${MODO_REAL ? `<div class="card" style="margin-top:16px"><div class="small muted">Conectada como</div><b>${esc(authEmail() || '')}</b><div class="tiny muted" style="margin-top:4px">${NUV.status === 'ok' ? 'Tudo salvo na nuvem' : NUV.status === 'offline' ? 'Sem internet — guardado neste aparelho' : 'Tentando falar com a nuvem…'}</div>
-    <button class="btn ghost full" style="margin-top:12px" onclick="sair()">Sair desta conta</button></div>`
+    <button class="btn ghost full" style="margin-top:12px" onclick="go('/nova-senha')">Trocar minha senha</button>
+    <button class="btn ghost full" style="margin-top:8px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.10 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.11 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 function cartaoAcesso() {
   const partes = [];
@@ -1971,7 +1972,7 @@ TELAS.entrar = () => {
     <button class="btn full" id="enBtn" style="margin-top:16px">${m === 'criar' ? 'Criar senha' : m === 'esqueci' ? 'Mandar link para o e-mail' : 'Entrar'}</button>
     <div id="enMsg" class="small" style="margin-top:12px" role="alert"></div></form>
     <div class="stack" style="margin-top:14px;text-align:center">
-      ${m !== 'entrar' ? `<button class="btn ghost full" onclick="modoEntrar='entrar';route()">Já tenho senha — entrar</button>` : `<button class="btn ghost full" onclick="modoEntrar='criar';route()">Primeiro acesso: criar minha senha</button><button class="btn ghost full" onclick="modoEntrar='esqueci';route()">Esqueci a senha</button>`}
+      ${m !== 'entrar' ? `<button class="btn ghost full" onclick="modoEntrar='entrar';route()">Já tenho senha — entrar</button>` : APP_CONFIG.emailsDeLogin === false ? `<p class="small muted" style="margin:0">Primeiro acesso ou esqueceu a senha? Fale com o suporte pelo WhatsApp: a senha é criada para você e depois você troca aqui no app, em Mais.</p>` : `<button class="btn ghost full" onclick="modoEntrar='criar';route()">Primeiro acesso: criar minha senha</button><button class="btn ghost full" onclick="modoEntrar='esqueci';route()">Esqueci a senha</button>`}
     </div>
     <p class="tiny muted" style="text-align:center;margin-top:16px">É o tutor? <a href="#/t">Marcar uma visita</a></p>`);
 };
@@ -2025,7 +2026,8 @@ async function sair() {
 TELAS.naoDona = () => telaSemRail('Conta sem acesso', '', `<div class="card"><p>Você entrou como <b>${esc(authEmail() || '')}</b>, mas este consultório só abre para a conta da Dra. Ingrid.</p><button class="btn full" onclick="sair()">Sair e entrar com outra conta</button></div>`);
 TELAS['nova-senha'] = () => telaSemRail('Senha nova', 'Escolha a senha que vai usar daqui para a frente', `<form class="card" onsubmit="event.preventDefault();trocarSenha()">
   <label for="nsSenha" style="margin-top:0">Senha nova (mínimo 8 caracteres)</label><input id="nsSenha" type="password" autocomplete="new-password" minlength="8" required>
-  <button class="btn full" id="nsBtn" style="margin-top:16px">Salvar senha</button><div id="nsMsg" class="small" style="margin-top:12px" role="alert"></div></form>`);
+  <button class="btn full" id="nsBtn" style="margin-top:16px">Salvar senha</button><div id="nsMsg" class="small" style="margin-top:12px" role="alert"></div></form>
+  ${NUV.dona ? '<a class="btn ghost full" style="margin-top:12px" href="#/mais">Voltar sem trocar</a>' : ''}`);
 async function trocarSenha() {
   const b = $('#nsBtn'); b.disabled = true;
   const r = await authSetPassword($('#nsSenha').value);
