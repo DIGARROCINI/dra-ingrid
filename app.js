@@ -675,8 +675,8 @@ function confirmar(gid) {
   abrirFolha(`<h2>Horário confirmado</h2><p class="muted">${esc(a.nome)} · ${diaSem(g.data)} ${dataCurta(g.data)} às ${g.hora}</p>
     <div class="stack" style="margin-top:14px">
       <a class="btn wa full" target="_blank" rel="noopener" href="${waLink(msg, t.fone)}">${ic('message-circle')} Avisar o tutor no WhatsApp</a>
-      <a class="btn sec full" target="_blank" rel="noopener" href="${linkGoogle(g)}">${ic('calendar')} Pôr no Google Agenda</a>
-      <p class="tiny muted">No app real a visita entra sozinha no Google Agenda da Ingrid, e os horários ocupados lá somem do link do tutor.</p>
+      ${typeof googleLigado === 'function' && googleLigado() ? `<p class="small muted" style="margin:0">${ic('check', 'sm')} Vai sozinha para o seu Google Agenda em até 5 minutos.</p>` : `<a class="btn sec full" target="_blank" rel="noopener" href="${linkGoogle(g)}">${ic('calendar')} Pôr no Google Agenda</a>
+      <p class="tiny muted">Para as visitas irem sozinhas para o Google Agenda, ligue em Mais → Google Agenda e avisos.</p>`}
     </div>`);
 }
 function recusar(gid) {
@@ -914,7 +914,8 @@ TELAS.agenda = () => {
       <div class="small">${esc(servicosTxt(g))} · ${esc(t.bairro)}</div>
       <div class="row wrap" style="margin-top:8px">${g.status === 'pedido' ? `<span class="tag coral">pedido do tutor</span><button class="btn mini" onclick="confirmar('${g.id}')">Confirmar</button>` : g.status === 'feito' ? '<span class="tag verde">feito</span>' : `<a class="btn mini" href="#/atender/${a.id}/${g.id}">Atender</a>`}<button class="btn mini ghost editar" onclick="editarHorario('${g.id}')">${ic('pencil', 'sm')} Editar</button></div></div>
       <a class="icbtn" target="_blank" rel="noopener" href="${linkGoogle(g)}" aria-label="Pôr no Google Agenda" title="Pôr no Google Agenda">${ic('calendar')}</a></div></div>`; })()).join('') || '<p class="muted">Dia livre.</p>'}</div>
-  <div class="aviso lil small" style="margin-top:14px">O tutor marca pelo link e você confirma. No app real a agenda conversa com o seu Google Agenda nos dois sentidos.</div>
+  ${(() => { const oc = typeof googleOcupadosDoDia === 'function' ? googleOcupadosDoDia(diaAgenda) : []; return oc.length ? `<div class="card" style="margin-top:10px"><div class="small muted" style="margin-bottom:4px">${ic('calendar', 'sm')} Ocupado no seu Google Agenda</div>${oc.map(b => `<div class="small" style="margin:4px 0"><b>${b.de}–${b.ate}</b> · ${esc(b.titulo || 'compromisso')}</div>`).join('')}<div class="tiny muted">Esses horários não aparecem para o tutor marcar.</div></div>` : ''; })()}
+  <div class="aviso lil small" style="margin-top:14px">O tutor marca pelo link e você confirma. ${typeof googleLigado === 'function' && googleLigado() ? 'As visitas confirmadas vão sozinhas para o seu Google Agenda, e o que está ocupado lá some do link do tutor.' : '<a href="#/google">Ligue o Google Agenda</a> para as visitas irem sozinhas para lá e o que estiver ocupado no Google sumir do link do tutor.'}</div>
   </main>`;
 };
 function novoHorario({ hora = '10:00', animalId = '', servico = '', data = diaAgenda || isoHoje(), obs = '' } = {}) {
@@ -2037,7 +2038,7 @@ function perguntar(p, porVoz = false) {
 
 /* ---- Mais / ADM ---- */
 TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
-  ${[['/financeiro', 'wallet', 'Financeiro', 'Entradas, saídas, a receber'], ['/estoque', 'package', 'Estoque', 'Vacinas, medicamentos, insumos'], ['/doses', 'scale', 'Calcular dose', 'Lista de medicamentos conferida no VetSmart'], ['/avaliacoes', 'star', 'Avaliações', 'O que os tutores acharam'], ['/rt', 'clipboard-list', 'Documentos de RT', 'Manual de Boas Práticas e POPs dos mercados'],
+  ${[['/google', 'calendar', 'Google Agenda e avisos', 'Visitas no Google, avisos com som no celular'], ['/financeiro', 'wallet', 'Financeiro', 'Entradas, saídas, a receber'], ['/estoque', 'package', 'Estoque', 'Vacinas, medicamentos, insumos'], ['/doses', 'scale', 'Calcular dose', 'Lista de medicamentos conferida no VetSmart'], ['/avaliacoes', 'star', 'Avaliações', 'O que os tutores acharam'], ['/rt', 'clipboard-list', 'Documentos de RT', 'Manual de Boas Práticas e POPs dos mercados'],
     ['/adm/tabela', 'tag', 'Tabela de valores', 'Vacinas, consultas, deslocamento'], ['/adm/protocolos', 'shield-check', 'Protocolos de vacina', 'Filhote e anual · check-up'], ['/adm/perfil', 'id-card', 'Meus dados profissionais', 'CRMV, MAPA, Pix, WhatsApp, Google'], ['/t', 'eye', 'Ver como tutor', 'O link que o cliente recebe']]
     .map(([h, i, t, s]) => `<a href="#${h}"><span class="icm">${ic(i)}</span><span class="grow">${t}<small>${s}</small></span>${ic('chevron-right')}</a>`).join('')}
   ${(DB.ajustes || []).length ? `<a href="#/ajustes"><span class="icm">${ic('clipboard-list')}</span><span class="grow">Pedidos de ajuste no app<small>${DB.ajustes.filter(x => x.status === 'novo').length} para o Eugênio</small></span>${ic('chevron-right')}</a>` : ''}
@@ -2048,7 +2049,7 @@ TELAS.mais = () => barra('Mais') + `<main><div class="card menu">
     <button class="btn ghost full" style="margin-top:12px" onclick="go('/nova-senha')">Trocar minha senha</button>
     <button class="btn ghost full" style="margin-top:8px" onclick="sair()">Sair desta conta</button></div>`
     : `<button class="btn ghost full" style="margin-top:16px" onclick="if(confirm('Voltar os dados de exemplo? O que você mexeu some.')){DB=seedDB();salvar();go('/')}">Restaurar dados de exemplo</button>`}
-  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.14 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
+  <p class="tiny muted" style="text-align:center;margin-top:10px">v0.15 · ${MODO_REAL ? 'dados na nuvem da Dra. Ingrid' : 'demonstração — os dados ficam só neste aparelho'}</p></main>`;
 
 function cartaoAcesso() {
   const partes = [];

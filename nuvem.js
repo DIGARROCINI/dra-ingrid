@@ -176,7 +176,7 @@ async function nuvCiclo(motivo = '') {
     if (typeof arqAposSincronia === 'function') arqAposSincronia();
     nuvStatus('ok');
     if (JSON.stringify(DB) !== antes && !isBusyEditing()) route({ manterScroll: true });
-    if (chegaram) toast(chegaram === 1 ? 'Chegou 1 pedido de horário' : `Chegaram ${chegaram} pedidos de horário`);
+    if (chegaram) { toast(chegaram === 1 ? 'Chegou 1 pedido de horário' : `Chegaram ${chegaram} pedidos de horário`); if (typeof avisoNaTela === 'function') avisoNaTela(); }
   } catch (e) { nuvStatus('erro'); }
   finally { nuvRodando = false; }
 }
